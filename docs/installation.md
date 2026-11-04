@@ -94,13 +94,13 @@ CGO_ENABLED=1 sh scripts/build.sh bin/pvedisk
 bin/pvedisk version
 ```
 
-`make build` uses the same build script as GitHub and GitLab. `VERSION` supplies
-the semantic version base. Development binaries use `<base>-dev+<12-character
-commit>`; release-tag builds preserve the exact semantic version tag. Every
-script-built binary records its full commit, UTC build date, and build source
-(`local`, `github`, or `gitlab`). A local source directory without Git metadata
-uses `<base>-dev+unknown`. Direct `go run .` builds intentionally report `dev`
-with unknown commit and build date.
+`make build` uses the same build script as GitHub and GitLab. Every script-built
+binary displays the plain number in `VERSION`, which increases with every committed
+change. Release tags must match that number, with an optional `v` prefix. Your
+full commit, UTC build date, and build source (`local`, `github`, or `gitlab`) stay
+in separate metadata fields. Without Git metadata, the commit is `unknown` while
+the version still comes from `VERSION`. Direct `go run .` builds intentionally
+report `unversioned`, with unknown commit and build date.
 
 Use `pvedisk version` for readable build details, `pvedisk version --short` or
 `pvedisk --version` for just the version, and `pvedisk version --json` for

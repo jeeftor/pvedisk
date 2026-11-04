@@ -30,25 +30,10 @@ if [ "$commit" != unknown ]; then
     [ "${#commit}" -ge 12 ] || { echo 'Your build commit is too short.' >&2; exit 1; }
 fi
 
-short_commit=$(printf '%s' "$commit" | cut -c 1-12)
-version="$base-dev+$short_commit"
-if [ -n "$tag" ]; then
-    # Permit the conventional v prefix; retain the exact release tag in output.
-    if ! printf '%s\n' "${tag#v}" | awk '
-        /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/ {
-            split($0, build, /[+]/); n=split(build[1], parts, "-")
-            if (n > 1) {
-                pre=substr(build[1], length(parts[1])+2); count=split(pre, identifiers, ".")
-                for (i=1; i<=count; i++) if (identifiers[i] ~ /^0[0-9]+$/) exit 1
-            }
-            ok=1
-        }
-        END {exit !ok}
-    '; then
-        echo 'Your release tag must be a semantic version such as v0.1.0.' >&2
-        exit 1
-    fi
-    version=$tag
+version=$base
+if [ -n "$tag" ] && [ "${tag#v}" != "$version" ]; then
+    echo 'Your release tag must match VERSION (an optional v prefix is allowed).' >&2
+    exit 1
 fi
 
 build_date=$(date -u '+%Y-%m-%dT%H:%M:%SZ')

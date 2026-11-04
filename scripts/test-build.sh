@@ -29,7 +29,7 @@ check() {
     expected_commit=${3:-$BUILD_TEST_COMMIT}
     sh "$repo_root/scripts/build.sh" "$test_dir/pvedisk"
     for field in "Version=$expected_version" "Source=$expected_source" "Commit=$expected_commit"; do
-        if ! awk -v field="$package.$field" 'index($0, field) {found=1} END {exit !found}' "$BUILD_TEST_ARGS"; then
+        if ! awk -v field="$package.$field" 'index(" " $0 " ", " " field " ") {found=1} END {exit !found}' "$BUILD_TEST_ARGS"; then
             echo "Your build metadata is missing $field." >&2
             exit 1
         fi
@@ -39,17 +39,17 @@ check() {
 
 # Invoke from outside the repository to exercise path resolution.
 cd "$test_dir"
-check "$base-dev+0123456789ab" local
+check "$base" local
 export GITHUB_SHA=$BUILD_TEST_COMMIT GITHUB_REF=refs/heads/master
-check "$base-dev+0123456789ab" github
-export GITHUB_REF=refs/tags/v1.2.3-rc.1+build.2
-check v1.2.3-rc.1+build.2 github
+check "$base" github
+export GITHUB_REF="refs/tags/v$base"
+check "$base" github
 unset GITHUB_SHA GITHUB_REF
 export CI_COMMIT_SHA=$BUILD_TEST_COMMIT
-check "$base-dev+0123456789ab" gitlab
-export CI_COMMIT_TAG=v1.2.3
-check v1.2.3 gitlab
-for invalid in v01.2.3 v1.2.3-01 'v1.2.3 invalid' v1.2; do
+check "$base" gitlab
+export CI_COMMIT_TAG="$base"
+check "$base" gitlab
+for invalid in v01.2.3 v1.2.3-01 'v1.2.3 invalid' v1.2 "v$base-rc.1"; do
     CI_COMMIT_TAG=$invalid
     export CI_COMMIT_TAG
     if sh "$repo_root/scripts/build.sh" "$test_dir/pvedisk" >/dev/null 2>&1; then
@@ -59,5 +59,5 @@ for invalid in v01.2.3 v1.2.3-01 'v1.2.3 invalid' v1.2; do
 done
 unset CI_COMMIT_SHA CI_COMMIT_TAG
 export BUILD_TEST_NO_GIT=true
-check "$base-dev+unknown" local unknown
+check "$base" local unknown
 echo 'Your build metadata checks passed.'

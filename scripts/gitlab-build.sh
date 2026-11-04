@@ -52,8 +52,7 @@ build() {
     sh scripts/build.sh "$output/$artifact"
     ldd "$output/$artifact"
     "$output/$artifact" --help
-    expected_version="$(cat VERSION)-dev+$(printf '%s' "$CI_COMMIT_SHA" | cut -c 1-12)"
-    if [ -n "${CI_COMMIT_TAG:-}" ]; then expected_version=$CI_COMMIT_TAG; fi
+    expected_version=$(cat VERSION)
     test "$("$output/$artifact" version --short)" = "$expected_version"
     test "$("$output/$artifact" --version)" = "$expected_version"
     "$output/$artifact" version

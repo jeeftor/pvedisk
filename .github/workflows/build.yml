@@ -55,8 +55,7 @@ jobs:
           sh scripts/build.sh dist/pvedisk
           ldd dist/pvedisk
           dist/pvedisk --help
-          expected_version="$(cat VERSION)-dev+$(printf '%s' "$GITHUB_SHA" | cut -c 1-12)"
-          case "$GITHUB_REF" in refs/tags/*) expected_version=${GITHUB_REF#refs/tags/} ;; esac
+          expected_version=$(cat VERSION)
           test "$(dist/pvedisk version --short)" = "$expected_version"
           test "$(dist/pvedisk --version)" = "$expected_version"
           dist/pvedisk version

@@ -27,9 +27,12 @@ build source, Go version, and operating system/architecture. `--short` prints
 only the version; `--json` exposes the same metadata for automation. `--version`
 also prints the version without requiring configuration or root access.
 
-`make build` and both CI systems use the same build script. Release tags provide
-the exact version, while development builds use `VERSION` plus a commit suffix.
-An unstamped `go run` or direct `go build` displays `dev` and unknown metadata.
+`make build` and both CI systems use the same build script and display the plain
+number in `VERSION`. Every committed change increases that number; patch increases
+are the default, with minor or major increases when Semantic Versioning requires
+them. Commit IDs remain separate metadata. Release tags must match `VERSION`,
+with an optional `v` prefix. An unstamped `go run` or direct `go build` displays
+`unversioned` and unknown metadata.
 
 ## Set up your host
 

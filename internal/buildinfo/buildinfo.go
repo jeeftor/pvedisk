@@ -4,8 +4,8 @@ package buildinfo
 import "runtime"
 
 var (
-	// Version is a release tag or development version supplied by scripts/build.sh.
-	Version = "dev"
+	// Version is supplied from VERSION by scripts/build.sh.
+	Version = "unversioned"
 	// Commit is the full source revision used for this executable.
 	Commit = "unknown"
 	// BuildDate is the UTC build timestamp in RFC3339 format.
