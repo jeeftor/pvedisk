@@ -61,10 +61,13 @@ func (m *Manager) intent(id int, root string, ro bool) (*State, error) {
 
 // Mount starts a detached worker and waits until its public views are available.
 func (m *Manager) Mount(ctx context.Context, id int, configPath string, ro bool, progress func(string)) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if runtime.GOOS != "linux" {
 		return errors.New("repair operations require Linux on a Proxmox host")
 	}
-	err := m.locked(func() error {
+	err := m.lockedContext(ctx, func() error {
 		cfg, err := config.Load(configPath)
 		if err != nil {
 			return err
@@ -136,6 +139,9 @@ func (m *Manager) Mount(ctx context.Context, id int, configPath string, ro bool,
 
 // Unmount asks the recorded worker to finalize its appliance before unlocking.
 func (m *Manager) Unmount(ctx context.Context, id int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validID(id); err != nil {
 		return err
 	}
@@ -161,6 +167,9 @@ func (m *Manager) Unmount(ctx context.Context, id int) error {
 	} else {
 		_ = conn.SetDeadline(time.Now().Add(5 * time.Minute))
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if _, err = fmt.Fprintln(conn, s.Token); err != nil {
 		return err
 	}
@@ -178,6 +187,9 @@ func (m *Manager) Unmount(ctx context.Context, id int) error {
 
 // Recover reconciles recorded processes, mounts and disk users before unlocking.
 func (m *Manager) Recover(ctx context.Context, id int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s, err := m.Status(id)
 	if err != nil {
 		return err
@@ -189,7 +201,7 @@ func (m *Manager) Recover(ctx context.Context, id int) error {
 	if live {
 		return m.Unmount(ctx, id)
 	}
-	return m.locked(func() error {
+	return m.lockedContext(ctx, func() error {
 		s, err := m.Status(id)
 		if err != nil {
 			return err

@@ -180,6 +180,26 @@ without `mkpasswd` or Python's
 `crypt` module. They do not require site configuration or perform VM operations;
 you must already have access to the shadow file you select.
 
+## HTTP MCP access
+
+Expose your host's VM inspection and mount tools to an HTTP MCP client:
+
+```sh
+pvedisk mcp
+# Explicit tokenless access on your isolated LAN:
+pvedisk mcp --listen 0.0.0.0:8766 --no-token
+# Or require your private bearer token:
+pvedisk mcp --listen 0.0.0.0:8766 --token-file /etc/pvedisk/mcp.token
+```
+
+The default endpoint is `http://127.0.0.1:8766/mcp`. The server exposes VM and
+session inspection, worker listing, version, doctor, mount, unmount, and recovery.
+Mounting remains writable by default; a read-only request still stops and locks
+your VM. A disconnected client can leave its detached worker running, so inspect
+status before retrying. Password helpers are not exposed over MCP. See
+[HTTP MCP setup](docs/mcp.md) for authentication, client connection, tool inputs,
+and the optional root systemd service.
+
 ## Recover an interrupted session
 
 ```console

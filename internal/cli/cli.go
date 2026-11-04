@@ -6,12 +6,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/jeeftor/pvedisk/internal/buildinfo"
 	"github.com/jeeftor/pvedisk/internal/config"
+	"github.com/jeeftor/pvedisk/internal/mcpserver"
 	"github.com/jeeftor/pvedisk/internal/proxmox"
 	"github.com/jeeftor/pvedisk/internal/session"
 	"github.com/spf13/cobra"
@@ -35,6 +37,7 @@ type operations struct {
 	save         func(string, config.Config) error
 	terminal     func(*cobra.Command) bool
 	password     func(*cobra.Command) ([]byte, error)
+	mcp          func(context.Context, string, mcpserver.HTTPOptions, io.Writer) error
 }
 
 // NewCommand constructs the CLI. Configuration is read only from the explicit
@@ -51,6 +54,7 @@ func NewCommand() *cobra.Command {
 		doctor: proxmox.New().Doctor,
 		load:   config.Load, save: config.Save,
 		terminal: isTerminal, password: readPassword,
+		mcp: mcpserver.RunHTTP,
 	})
 }
 
@@ -266,6 +270,7 @@ func newCommand(ops operations) *cobra.Command {
 	root.AddCommand(worker)
 	root.AddCommand(utilities)
 	root.AddCommand(versionCommand())
+	root.AddCommand(mcpCommand(ops, &configPath))
 	return root
 }
 

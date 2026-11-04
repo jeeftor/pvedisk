@@ -2,6 +2,7 @@
 package session
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/jeeftor/pvedisk/internal/appliance"
 	"github.com/jeeftor/pvedisk/internal/proxmox"
@@ -82,6 +84,13 @@ func (m *Manager) inspectRoot() error {
 }
 
 func (m *Manager) locked(fn func() error) error {
+	return m.lockedContext(context.Background(), fn)
+}
+
+func (m *Manager) lockedContext(ctx context.Context, fn func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := m.prepare(); err != nil {
 		return err
 	}
@@ -91,10 +100,29 @@ func (m *Manager) locked(fn func() error) error {
 	}
 	f := os.NewFile(uintptr(fd), "operations.lock")
 	defer f.Close()
-	if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
-		return err
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) && !errors.Is(err, syscall.EINTR) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 	defer syscall.Flock(fd, syscall.LOCK_UN)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return fn()
 }
 

@@ -27,8 +27,10 @@ pvedisk doctor
 pvedisk setup
 ```
 
-The bundle includes the raw `pvedisk` executable, the installer, checksums, and
-license notices. The binary requires Debian 13 native libraries and C runtime.
+The bundle includes the raw `pvedisk` executable, the installer, checksums,
+license notices, `MCP.md`, recovery guidance, and an optional
+`pvedisk-mcp.service` template. The installer does not enable that service.
+The binary requires Debian 13 native libraries and C runtime.
 
 ## From a GitLab pipeline build
 
