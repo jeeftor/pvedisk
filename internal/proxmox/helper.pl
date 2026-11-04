@@ -156,15 +156,16 @@ PVE::QemuConfig->lock_config($vmid, sub {
         local $/;
         my $owner = decode_json(<$fh>);
         close($fh) or die "close ownership file: $!\n";
+        die "ownership mismatch; record retained\n" if ref($owner) ne 'HASH' || ($owner->{token} // '') ne $token || ($owner->{digest} // '') !~ /\A[0-9a-f]{64}\z/;
         if ($absent) {
-            die "ownership mismatch; record retained\n" if ref($owner) ne 'HASH' || ($owner->{token} // '') ne $token || ($owner->{digest} // '') !~ /\A[0-9a-f]{64}\z/;
             die "VM configuration was recreated; ownership retained\n" if !config_is_absent();
             unlink($owner_path) or die "remove deleted VM ownership record: $!\n";
             return;
         }
-        if (!defined($conf->{lock}) && $owner->{token} eq $token) {
-            my %intended = (%$conf, lock => 'create');
-            die "interrupted acquisition configuration changed\n" if $owner->{digest} ne config_fingerprint(\%intended);
+        if (!defined($conf->{lock})) {
+            # With no Proxmox lock there is nothing to unlock. After session
+            # cleanup has checked disk users, discard only our stale marker;
+            # the VM may legitimately have been edited or recreated meanwhile.
             die "VM unexpectedly running; ownership retained\n" if PVE::QemuServer::check_running($vmid);
             unlink($owner_path) or die "remove interrupted ownership record: $!\n";
             return;

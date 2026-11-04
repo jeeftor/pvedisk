@@ -37,22 +37,32 @@ to recreate the mount root or discard session records.
 Deleting a VM does not erase its repair-session record. Run `pvedisk recover VMID`
 to reconcile its recorded worker, appliance, mounts, and disk users. If the VM
 configuration is gone, recovery releases only a matching owned marker after
-checking that the VM is not running. A different owner's marker or another
-existing lock still prevents cleanup.
+checking that the VM is not running. If you rebuilt a stopped VM with the same
+identifier and its current configuration has no lock, recovery can remove the
+old matching session marker without changing that configuration. A different
+owner's marker or another existing lock still prevents cleanup. When the current
+configuration still has the session's create lock, its saved configuration
+fingerprint must also match before recovery can release that lock.
 
 New sessions preserve each disk's filesystem device and inode, block-device
 number when applicable, and host boot identity. If a disk path disappears during
 the same host boot, recovery checks that saved identity against process file
 descriptors, kernel mounts, active swap, block holders, and loop mappings. This
 detects an image still open after deletion, including access through a hard link,
-and a block volume opened through another device-node alias. A replacement disk
-at the recorded path is rejected.
+and a block volume opened through another device-node alias. If a rebuilt VM
+reuses the disk pathname during the same boot, recovery checks the original
+saved disk identity rather than adopting the replacement. It also checks the
+current replacement disk's users before releasing startup protection. Neither
+disk is modified. An open or mounted original or replacement disk prevents
+cleanup.
 
 Older sessions without a saved disk identity remain recoverable when their
 original disk paths are accessible. If a path is missing, recovery retains
 protection and asks you to restore access to the original disk or storage before
 retrying. The same restriction applies to missing paths after a host reboot or
 when the saved boot identity is unavailable: device numbers may have changed.
+Reused disk paths require the same boot-bound original identity; uncertainty
+about the original disk retains protection even if the replacement is idle.
 Do not create an empty placeholder image or substitute another volume to pass
 this check. These identities are kernel device and inode identities, not
 permanent storage identifiers; if storage was remounted or devices were

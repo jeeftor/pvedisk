@@ -27,7 +27,7 @@ func TestEmbeddedHelperLifecycle(t *testing.T) {
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("Perl is unavailable")
 	}
-	for _, scenario := range []string{"attached-disks", "existing-lock", "pending", "ha", "paused", "running", "owned-release", "changed-config", "wrong-token", "stale-marker", "interrupted-acquire", "repeat-release"} {
+	for _, scenario := range []string{"attached-disks", "existing-lock", "pending", "ha", "paused", "running", "owned-release", "changed-config", "wrong-token", "stale-marker", "interrupted-acquire", "repeat-release", "changed-config-unlocked", "recreated-unlocked", "unlocked-running", "unlocked-wrong-token", "unlocked-invalid-marker", "unlocked-unsafe-marker"} {
 		t.Run(scenario, func(t *testing.T) {
 			dir := t.TempDir()
 			base := filepath.Join(dir, "state")
@@ -120,7 +120,57 @@ func TestEmbeddedHelperLifecycle(t *testing.T) {
 				}
 				return
 			}
+			unlocked := strings.Contains(scenario, "unlocked")
+			ownerPath := filepath.Join(base, "locks", "400.json")
+			if unlocked {
+				delete(conf, "lock")
+				conf["name"] = "changed after the session"
+				switch scenario {
+				case "recreated-unlocked":
+					conf = map[string]any{"name": "replacement", "scsi0": map[string]string{"file": "another:disk", "format": "raw"}}
+				case "unlocked-running":
+					conf["test_running"] = true
+				case "unlocked-wrong-token":
+					token = "fedcba9876543210"
+				case "unlocked-invalid-marker":
+					if err := os.WriteFile(ownerPath, []byte(`{"token":"0123456789abcdef","digest":"invalid"}`), 0600); err != nil {
+						t.Fatal(err)
+					}
+				case "unlocked-unsafe-marker":
+					if err := os.Chmod(ownerPath, 0644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				writeConf()
+			}
+			configBefore, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ownerBefore, err := os.ReadFile(ownerPath)
+			if err != nil {
+				t.Fatal(err)
+			}
 			out, err = run("release", token)
+			if unlocked {
+				wantFailure := strings.HasPrefix(scenario, "unlocked-")
+				if (err != nil) != wantFailure {
+					t.Fatalf("unlocked cleanup failure=%t: %v: %s", wantFailure, err, out)
+				}
+				configAfter, readErr := os.ReadFile(configPath)
+				if readErr != nil || string(configAfter) != string(configBefore) {
+					t.Fatalf("unlocked VM configuration changed: %v", readErr)
+				}
+				ownerAfter, readErr := os.ReadFile(ownerPath)
+				if wantFailure {
+					if readErr != nil || string(ownerAfter) != string(ownerBefore) {
+						t.Fatalf("unsafe cleanup changed ownership marker: %v", readErr)
+					}
+				} else if !os.IsNotExist(readErr) {
+					t.Fatalf("stale owned marker remains: %v", readErr)
+				}
+				return
+			}
 			if scenario == "changed-config" || scenario == "wrong-token" {
 				if err == nil {
 					t.Fatal("uncertain ownership unlocked")

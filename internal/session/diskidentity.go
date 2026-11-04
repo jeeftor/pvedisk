@@ -80,6 +80,7 @@ func assertRecoveryDisksUnused(s *State) error {
 
 func assertRecoveryDisksUnusedAt(s *State, sysRoot, procRoot string) error {
 	identities := make(map[string]DiskIdentity, len(s.Disks))
+	replacements := make(map[string]DiskIdentity)
 	for _, disk := range s.Disks {
 		if recorded, ok := s.DiskIdentities[disk.Path]; ok {
 			identities[disk.Path] = recorded
@@ -89,12 +90,8 @@ func assertRecoveryDisksUnusedAt(s *State, sysRoot, procRoot string) error {
 			if _, ok := identities[disk.Path]; !ok {
 				return fmt.Errorf("cannot verify your missing disk %s: this older session has no recorded disk identity; restore access to the original disk or storage, then retry pvedisk recover %d; protection is retained", disk.Path, s.VMID)
 			}
-			boot, err := diskBootID()
-			if err != nil {
+			if err := requireOriginalDiskBoot(disk.Path, identities[disk.Path]); err != nil {
 				return err
-			}
-			if identities[disk.Path].Boot == "" || identities[disk.Path].Boot != boot {
-				return fmt.Errorf("cannot verify your missing disk %s across a host reboot or without its recorded boot identity; restore access to the original disk or storage before recovery; protection is retained", disk.Path)
 			}
 			continue
 		}
@@ -106,7 +103,13 @@ func assertRecoveryDisksUnusedAt(s *State, sysRoot, procRoot string) error {
 			return err
 		}
 		if recorded, ok := identities[disk.Path]; ok && (recorded.Device != current.Device || recorded.Inode != current.Inode || recorded.BlockDevice != current.BlockDevice || recorded.Kind != current.Kind) {
-			return fmt.Errorf("your disk path %s identifies a different disk than the session record; restore access to the original disk before recovery; protection is retained", disk.Path)
+			if err := requireOriginalDiskBoot(disk.Path, recorded); err != nil {
+				return err
+			}
+			// Keep the original saved identity authoritative when a rebuilt VM
+			// reuses its pathname, and check replacement users before unlocking.
+			replacements[disk.Path+" (replacement)"] = current
+			continue
 		}
 		identities[disk.Path] = current
 	}
@@ -118,7 +121,26 @@ func assertRecoveryDisksUnusedAt(s *State, sysRoot, procRoot string) error {
 			return err
 		}
 	}
-	return assertDiskIdentitiesUnusedAt(identities, procRoot)
+	for path, identity := range replacements {
+		if err := kernelRecordedDiskUnusedAt(path, identity, sysRoot, procRoot); err != nil {
+			return err
+		}
+	}
+	if err := assertDiskIdentitiesUnusedAt(identities, procRoot); err != nil {
+		return err
+	}
+	return assertDiskIdentitiesUnusedAt(replacements, procRoot)
+}
+
+func requireOriginalDiskBoot(path string, identity DiskIdentity) error {
+	boot, err := diskBootID()
+	if err != nil {
+		return err
+	}
+	if identity.Boot == "" || identity.Boot != boot {
+		return fmt.Errorf("cannot verify your original disk %s after its path disappeared or changed across a host reboot or without its recorded boot identity; restore access to the original disk or storage before recovery; protection is retained", path)
+	}
+	return nil
 }
 
 func diskBootID() (string, error) {
@@ -134,6 +156,9 @@ func diskBootID() (string, error) {
 }
 
 func assertDiskIdentitiesUnusedAt(identities map[string]DiskIdentity, procRoot string) error {
+	if len(identities) == 0 {
+		return nil
+	}
 	entries, err := os.ReadDir(procRoot)
 	if err != nil {
 		return err
