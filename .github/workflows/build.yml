@@ -61,7 +61,7 @@ jobs:
           mkdir -p dist
           version="0.1.0-dev+$(printf '%s' "$BUILD_SHA" | cut -c 1-12)"
           case "$BUILD_REF" in refs/tags/v*) version=$BUILD_TAG ;; esac
-          go build -trimpath -ldflags "-X github.com/jeeftor/pvedisk/internal/cli.Version=$version" -o "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}" .
+          go build -trimpath -buildvcs=false -ldflags "-X github.com/jeeftor/pvedisk/internal/cli.Version=$version" -o "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}" .
           ldd "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}"
           "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}" --help
           "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}" --version
