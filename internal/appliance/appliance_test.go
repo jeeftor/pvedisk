@@ -80,6 +80,9 @@ func TestPrepareHierarchyAndExtras(t *testing.T) {
 		t.Fatalf("calls = %v; want %v", f.calls, want)
 	}
 	for _, fs := range inventory.Filesystems {
+		if fs.Extra != (fs.Device == "/dev/sdb1") {
+			t.Fatalf("incorrect extra filesystem classification: %+v", fs)
+		}
 		if (fs.Type == "swap" || fs.Type == "LVM2_member") && fs.Mounted {
 			t.Fatalf("container was mounted: %+v", fs)
 		}

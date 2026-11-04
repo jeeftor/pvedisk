@@ -21,7 +21,7 @@ func versionCommand() *cobra.Command {
 			}
 			p := outputPalette(cmd.OutOrStdout())
 			metadata := fmt.Sprintf("%s %s\n\n%s %s\n%s %s\n%s %s\n%s %s\n%s %s", p.title.Render("pvedisk"), p.success.Render(info.Version), p.label.Render("Commit:"), info.Commit, p.label.Render("Built:"), info.BuildDate, p.label.Render("Source:"), info.Source, p.label.Render("Go:"), info.GoVersion, p.label.Render("Target:"), info.OS+"/"+info.Arch)
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), p.panel(metadata, terminalWidth(cmd.OutOrStdout())))
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), metadata)
 			return err
 		},
 	}

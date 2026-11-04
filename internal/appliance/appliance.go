@@ -17,6 +17,7 @@ type Disk struct{ Path, Format string }
 type Filesystem struct {
 	Device, Type, Mountpoint, ID string
 	Mounted                      bool
+	Extra                        bool // Mounted separately from the guest's reconstructed hierarchy.
 }
 
 // Inventory describes the single selected Linux operating system and all filesystems.
@@ -143,6 +144,7 @@ func (h *Handle) Prepare() (Inventory, error) {
 			}
 			fs.Mountpoint = target
 			fs.Mounted = true
+			fs.Extra = true
 		}
 		inventory.Filesystems = append(inventory.Filesystems, fs)
 	}

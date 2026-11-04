@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/jeeftor/pvedisk/internal/buildinfo"
@@ -143,37 +141,7 @@ func newCommand(ops operations) *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("your mount started, but its recorded location could not be read: %w", err)
 		}
-		mode := "read/write"
-		if state.ReadOnly {
-			mode = "read-only"
-		}
-		p := outputPalette(cmd.OutOrStdout())
-		modeStyle := p.warning
-		if state.ReadOnly {
-			modeStyle = p.success
-		}
-		result := fmt.Sprintf("%s (%s).\n%s %s\n%s %s", p.success.Render(fmt.Sprintf("Your VM %d is mounted", id)), modeStyle.Render(mode), p.label.Render("Guest root:"), p.path.Render(state.Public), p.label.Render("Additional filesystems:"), p.path.Render(state.Extras))
-		fmt.Fprintln(cmd.OutOrStdout(), p.panel(result, terminalWidth(cmd.OutOrStdout())))
-		if len(state.Inventory.Filesystems) > 0 {
-			var table bytes.Buffer
-			w := tabwriter.NewWriter(&table, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "DEVICE\tTYPE\tGUEST MOUNTPOINT")
-			for _, fs := range state.Inventory.Filesystems {
-				point := fs.Mountpoint
-				if !fs.Mounted {
-					point = "not mounted"
-				}
-				fmt.Fprintf(w, "%s\t%s\t%s\n", fs.Device, fs.Type, point)
-			}
-			if err := w.Flush(); err != nil {
-				return err
-			}
-			header, rows, _ := strings.Cut(table.String(), "\n")
-			fmt.Fprintln(cmd.OutOrStdout(), p.label.Render(header))
-			fmt.Fprint(cmd.OutOrStdout(), rows)
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.muted.Render("When you finish, run:"), p.path.Render(fmt.Sprintf("pvedisk unmount %d", id)))
-		return nil
+		return writeMountSummary(cmd.OutOrStdout(), id, state)
 	})
 	mount.Flags().BoolVar(&readOnly, "ro", false, "Mount all guest disks read-only")
 	mount.Use = "mount [VMID]"

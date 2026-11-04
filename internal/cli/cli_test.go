@@ -379,7 +379,7 @@ func TestMountReportsProgressAndConfirmedLocations(t *testing.T) {
 			return nil
 		}
 		ops.status = func(int) (*session.State, error) {
-			return &session.State{ReadOnly: ro, Public: "/repairs/vm406", Extras: "/repairs/vm406-extra", Inventory: appliance.Inventory{Filesystems: []appliance.Filesystem{{Device: "/dev/sda1", Type: "ext4", Mountpoint: "/", Mounted: true}, {Device: "/dev/sda2", Type: "swap"}}}}, nil
+			return &session.State{ReadOnly: ro, Public: "/repairs/vm406", Extras: "/repairs/vm406-extra", Inventory: appliance.Inventory{Filesystems: []appliance.Filesystem{{Device: "/dev/sda1", Type: "ext4", Mountpoint: "/", Mounted: true}, {Device: "/dev/sda2", Type: "swap"}, {Device: "/dev/sdb1", Type: "ext4", Mountpoint: "/extras/fs-extra", ID: "fs-extra", Mounted: true, Extra: true}}}}, nil
 		}
 		args := []string{"mount", "406"}
 		if ro {

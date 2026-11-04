@@ -22,7 +22,8 @@ pvedisk version --short
 pvedisk version --json
 ```
 
-The version command shows your source version, full commit, UTC build timestamp,
+The version command uses colored text without a surrounding box and shows your
+source version, full commit, UTC build timestamp,
 build source, Go version, and operating system/architecture. `--short` prints
 only the version; `--json` exposes the same metadata for automation. `--version`
 also prints the version without requiring configuration or root access.
@@ -85,10 +86,14 @@ they are empty, so files or mounts from an earlier tool are never hidden.
 See [recovery](docs/recovery.md) if your destination already exists.
 
 During startup, `mount` prints progress as the worker changes phases. On success,
-it confirms the access mode, guest root, extras directory, discovered filesystems,
+it confirms the access mode, guest root, any extras directory, discovered filesystems,
 and the unmount command. On failure, it gives you the command to inspect the
 recorded session. `status` reports when no pvedisk session is recorded; it does
 not track mounts created by other tools or list every Proxmox VM.
+The filesystem table includes each full **HOST PATH**: `/` maps to your guest
+root directory, `/boot` and `/boot/efi` map below it, and extra filesystems map
+below the extras directory. Unmounted filesystems show no host path. The mount
+summary uses compact colored text without a surrounding box.
 Bare `pvedisk status` shows your mounted disks and saved sessions awaiting
 cleanup. The **DISKS** column reports current mounts; **SAVED STEP** and saved
 errors describe earlier work. A saved `mounted` step does not mean disks are

@@ -77,7 +77,7 @@ func TestDiskImage(t *testing.T) {
 		extraID := ""
 		for _, fs := range inventory.Filesystems {
 			if fs.Device == "/dev/sdb" {
-				if !fs.Mounted || fs.Mountpoint != "/extras/"+fs.ID {
+				if !fs.Mounted || !fs.Extra || fs.Mountpoint != "/extras/"+fs.ID {
 					t.Fatalf("extra filesystem was not exposed: %+v", fs)
 				}
 				extraID = fs.ID
