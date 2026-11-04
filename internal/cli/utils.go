@@ -30,7 +30,7 @@ func utilsCommand() *cobra.Command {
 }
 
 func newUtilsCommand(ops utilityOperations) *cobra.Command {
-	utilities := &cobra.Command{Use: "utils", Short: "Offline password helpers (no VM operations)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() }}
+	utilities := &cobra.Command{Use: "utils", Short: "Optional repair and password helpers", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() }}
 	utilities.AddCommand(&cobra.Command{
 		Use: "hash-password", Short: "Generate a Linux yescrypt hash for your password",
 		Long: "Enter your password twice without echo. Your sensitive password hash is printed alone on standard output. This command does not change any guest files.",

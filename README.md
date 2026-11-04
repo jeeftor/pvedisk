@@ -59,7 +59,7 @@ Cancelling setup leaves your configuration and virtual machines untouched.
 The first bare `pvedisk` invocation opens setup only when you have a terminal.
 After configuration, the bare command displays help and your destination. In a
 script, run the explicit noninteractive setup command instead. Mounting and
-password reset require valid configuration and never run setup for you.
+`utils reset-root` require valid configuration and never run setup for you.
 
 ## Repair a guest
 
@@ -124,21 +124,22 @@ resident until successful cleanup. Bare `pvedisk unmount` lists those sessions
 and prompts for the one you want to clean up. `pvedisk unmount VMID` remains
 available for scripts. Sessions whose workers have exited require `recover VMID`.
 
-```console
-pvedisk reset-root 400
-```
-
-Password reset requires unmounted disks and prompts twice without echo. It passes
-the password to `virt-customize` through a protected temporary file and never
-includes it in command arguments or logs.
-
-## Offline password helpers
+## Optional password helpers
 
 ```console
 pvedisk utils
+pvedisk utils reset-root 400
 pvedisk utils verify-password --shadow /your/repair-directory/vm406/etc/shadow
 pvedisk utils hash-password
 ```
+
+`utils reset-root` resets root passwords on supported Linux guests through
+[`virt-customize`](https://libguestfs.org/virt-customize.1.html); it is not limited
+to RHEL 10. It requires valid site configuration and unmounted disks, and prompts
+twice without echo. It passes the password to `virt-customize` through a
+protected temporary file and never includes it in command arguments or logs.
+The VM lifecycle checks, graceful shutdown, startup protection, and cleanup
+requirements also apply to this optional reset helper.
 
 `verify-password` prompts once without echo and compares your known password
 against the selected shadow entry. The account defaults to `root`; use
@@ -146,7 +147,7 @@ against the selected shadow entry. The account defaults to `root`; use
 printing your password or the stored hash. Empty, locked, or malformed entries
 produce a distinct error. Verification does not attempt a login or change files.
 
-For automation, redirect or pipe one password into either helper:
+For automation, redirect or pipe one password into either offline helper:
 
 ```sh
 pvedisk utils verify-password --shadow /your/repair-directory/vm406/etc/shadow < "$HOME/.rootpw"
@@ -159,8 +160,9 @@ and percent signs, are preserved. Empty input, multiple lines, null bytes, and
 input exceeding 64 KiB are rejected without printing the supplied password.
 
 `hash-password` prompts twice without echo and prints a salted yescrypt hash alone
-on standard output. It does not install that hash or reset a guest password. Both
-helpers use native Linux libcrypt and work offline without `mkpasswd` or Python's
+on standard output. It does not install that hash or reset a guest password.
+`verify-password` and `hash-password` use native Linux libcrypt and work offline
+without `mkpasswd` or Python's
 `crypt` module. They do not require site configuration or perform VM operations;
 you must already have access to the shadow file you select.
 

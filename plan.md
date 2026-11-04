@@ -35,7 +35,7 @@ pvedisk mount 400
 pvedisk mount 400 --ro
 pvedisk status 400
 pvedisk unmount 400
-pvedisk reset-root 400
+pvedisk utils reset-root 400
 pvedisk recover 400
 
 The configured destination determines the layout:

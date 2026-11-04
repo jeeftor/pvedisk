@@ -85,7 +85,7 @@ func TestMountPromptsForMissingVMID(t *testing.T) {
 }
 
 func TestMissingConfigurationDoesNotStartVMOperations(t *testing.T) {
-	for _, args := range [][]string{nil, {"mount"}, {"mount", "400"}, {"reset-root", "400"}} {
+	for _, args := range [][]string{nil, {"mount"}, {"mount", "400"}, {"utils", "reset-root", "400"}} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			ops := testOperations()
 			ops.mount = func(context.Context, int, string, bool, func(string)) error { t.Fatal("mount called"); return nil }
@@ -263,7 +263,7 @@ func TestPasswordIsPassedPrivatelyAndCleared(t *testing.T) {
 		called = id == 400 && path == config.DefaultPath && string(value) == "private-test-password"
 		return nil
 	}
-	output, err := execute(ops, "reset-root", "400")
+	output, err := execute(ops, "utils", "reset-root", "400")
 	if err != nil || !called || strings.Contains(output, "private-test-password") {
 		t.Fatalf("called=%v output=%q err=%v", called, output, err)
 	}
@@ -271,6 +271,90 @@ func TestPasswordIsPassedPrivatelyAndCleared(t *testing.T) {
 		if b != 0 {
 			t.Fatal("password memory retained")
 		}
+	}
+}
+
+func TestPasswordResetIsAnOptionalUtilityOnly(t *testing.T) {
+	ops := testOperations()
+	ops.load = func(string) (config.Config, error) {
+		t.Fatal("removed root command loaded configuration")
+		return config.Config{}, nil
+	}
+	ops.password = func(*cobra.Command) ([]byte, error) {
+		t.Fatal("removed root command requested a password")
+		return nil, nil
+	}
+	ops.reset = func(context.Context, int, string, []byte) error {
+		t.Fatal("removed root command reset a password")
+		return nil
+	}
+	if _, err := execute(ops, "reset-root", "400"); err == nil {
+		t.Fatal("old root reset-root command was retained")
+	}
+	rootHelp, err := execute(ops, "--help")
+	if err != nil || strings.Contains(rootHelp, "reset-root") {
+		t.Fatalf("root command still advertises reset-root: %q err=%v", rootHelp, err)
+	}
+	utilityHelp, err := execute(ops, "utils", "--help")
+	if err != nil || !strings.Contains(utilityHelp, "reset-root") || !strings.Contains(utilityHelp, "Optional repair and password helpers") || strings.Contains(utilityHelp, "no VM operations") {
+		t.Fatalf("utility command missing or inaccurate: %q err=%v", utilityHelp, err)
+	}
+	resetHelp, err := execute(ops, "utils", "reset-root", "--help")
+	for _, want := range []string{"supported Linux guest", "virt-customize", "not limited to RHEL 10"} {
+		if err != nil || !strings.Contains(resetHelp, want) {
+			t.Fatalf("missing reset support guidance %q: %q err=%v", want, resetHelp, err)
+		}
+	}
+}
+
+func TestUtilityPasswordResetPreservesExplicitConfiguration(t *testing.T) {
+	ops := testOperations()
+	path := "/explicit/pvedisk.yaml"
+	ops.load = func(actual string) (config.Config, error) {
+		if actual != path {
+			t.Fatalf("loaded wrong configuration %q", actual)
+		}
+		return config.Config{MountRoot: "/repairs"}, nil
+	}
+	secret := []byte("private-test-password")
+	ops.password = func(*cobra.Command) ([]byte, error) { return secret, nil }
+	called := false
+	ops.reset = func(_ context.Context, id int, actual string, value []byte) error {
+		called = id == 400 && actual == path && string(value) == "private-test-password"
+		return nil
+	}
+	output, err := execute(ops, "utils", "reset-root", "400", "--config", path)
+	if err != nil || !called || strings.Contains(output, "private-test-password") {
+		t.Fatalf("called=%v output=%q err=%v", called, output, err)
+	}
+	assertCleared(t, secret)
+}
+
+func TestUtilityPasswordResetPreservesFailureAndClearsPassword(t *testing.T) {
+	ops := testOperations()
+	ops.load = func(string) (config.Config, error) { return config.Config{MountRoot: "/repairs"}, nil }
+	secret := []byte("private-test-password")
+	ops.password = func(*cobra.Command) ([]byte, error) { return secret, nil }
+	failure := errors.New("your guest disks are already mounted")
+	ops.reset = func(context.Context, int, string, []byte) error { return failure }
+	output, err := execute(ops, "utils", "reset-root", "400")
+	if !errors.Is(err, failure) || strings.Contains(output, "password was updated") || strings.Contains(output, "qm start") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+	assertCleared(t, secret)
+}
+
+func TestUtilityPasswordResetStillRequiresTerminalInput(t *testing.T) {
+	ops := testOperations()
+	ops.load = func(string) (config.Config, error) { return config.Config{MountRoot: "/repairs"}, nil }
+	ops.password = readPassword
+	ops.reset = func(context.Context, int, string, []byte) error {
+		t.Fatal("password reset accepted piped input")
+		return nil
+	}
+	_, err := executeInput(ops, "private-test-password\n", "utils", "reset-root", "400")
+	if err == nil || !strings.Contains(err.Error(), "terminal") {
+		t.Fatalf("password reset lost its terminal requirement: %v", err)
 	}
 }
 

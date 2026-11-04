@@ -24,7 +24,8 @@ On Proxmox 9, use a guest you can destroy and restore:
 - Verify a separate `/boot`, `/home`, guest LVM, and an additional filesystem.
 - Confirm media, cloud-init, EFI, TPM, swap, and unattached disks are not exposed
   as ordinary repairable guest filesystems.
-- With configuration absent, verify noninteractive mount and password reset fail
+- With configuration absent, verify noninteractive mount and
+  `pvedisk utils reset-root VMID` fail
   before shutting down the guest. Cancel setup and confirm no configuration or
   VM changes occurred.
 - Reject existing locks, pending disk changes, HA-managed guests, suspended

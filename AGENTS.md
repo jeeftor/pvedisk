@@ -1,5 +1,11 @@
 # pvedisk contributor instructions
 
+## Repository remotes
+
+- `origin` is the primary GitLab upstream. Track feature branches there.
+- `github` is the secondary GitHub mirror and native build runner.
+- Keep work on feature branches; default pushes should use `origin`.
+
 ## Version every change
 
 - Increase the root `VERSION` in every code, documentation, configuration, or test

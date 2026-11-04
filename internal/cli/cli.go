@@ -273,7 +273,8 @@ func newCommand(ops operations) *cobra.Command {
 		}
 		root.AddCommand(command)
 	}
-	root.AddCommand(vmCommand("reset-root", "Set your unmounted guest's root password", func(cmd *cobra.Command, id int) error {
+	utilities := utilsCommand()
+	resetRoot := vmCommand("reset-root", "Set a supported Linux guest's root password", func(cmd *cobra.Command, id int) error {
 		if _, err := requireConfig(cmd, ops, configPath); err != nil {
 			return err
 		}
@@ -288,11 +289,13 @@ func newCommand(ops operations) *cobra.Command {
 		p := outputPalette(cmd.OutOrStdout())
 		fmt.Fprintf(cmd.OutOrStdout(), "%s\n%s %s\n", p.success.Render("Your guest root password was updated."), p.success.Render("You can now run:"), p.path.Render(fmt.Sprintf("qm start %d", id)))
 		return nil
-	}))
+	})
+	resetRoot.Long = "Set the root password of a supported Linux guest through virt-customize; this helper is not limited to RHEL 10. You need valid configuration and unmounted guest disks. Enter your new password twice at a terminal. Your guest is never restarted automatically."
+	utilities.AddCommand(resetRoot)
 	worker := vmCommand("_worker", "Internal detached session worker", func(cmd *cobra.Command, id int) error { return ops.worker(cmd.Context(), id) })
 	worker.Hidden = true
 	root.AddCommand(worker)
-	root.AddCommand(utilsCommand())
+	root.AddCommand(utilities)
 	root.AddCommand(versionCommand())
 	return root
 }
