@@ -1,0 +1,128 @@
+name: Linux CGO build and tests
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debian:
+    name: Debian ${{ matrix.debian }} amd64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        debian: ['12', '13']
+    container:
+      image: debian:${{ matrix.debian }}
+      options: --privileged
+    env:
+      CGO_ENABLED: '1'
+      LIBGUESTFS_BACKEND: direct
+      LIBGUESTFS_BACKEND_SETTINGS: force_tcg
+      GO_VERSION: '1.27.3'
+    steps:
+      - name: Install native build and appliance dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates curl git build-essential pkg-config libguestfs-dev \
+            libguestfs-tools libguestfs-xfs fuse3 qemu-system-x86 linux-image-amd64 shellcheck
+          if [ ! -e /dev/fuse ]; then mknod /dev/fuse c 10 229; fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Verify formatting, dependencies, and shell scripts
+        run: |
+          test -z "$(gofmt -l main.go internal)" || { gofmt -l main.go internal; exit 1; }
+          go mod verify
+          shellcheck scripts/*.sh
+          make
+      - name: Vet and unit tests against native libguestfs
+        run: |
+          go vet ./...
+          go test -race -timeout 10m ./...
+      - name: Linux disk-image integration tests
+        run: go test -v -tags integration -timeout 15m ./internal/appliance
+      - name: Build and inspect native executable
+        env:
+          BUILD_REF: ${{ github.ref }}
+          BUILD_TAG: ${{ github.ref_name }}
+          BUILD_SHA: ${{ github.sha }}
+        run: |
+          mkdir -p dist
+          version="0.1.0-dev+$(printf '%s' "$BUILD_SHA" | cut -c 1-12)"
+          case "$BUILD_REF" in refs/tags/v*) version=$BUILD_TAG ;; esac
+          go build -trimpath -ldflags "-X github.com/jeeftor/pvedisk/internal/cli.Version=$version" -o "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}" .
+          ldd "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}"
+          "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}" --help
+          "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}" --version
+          cd dist
+          sha256sum "pvedisk-linux-amd64-debian${{ matrix.debian }}" > SHA256SUMS
+      - name: Verify installation on this Debian version
+        run: |
+          sh scripts/install.sh --artifact-dir "$PWD/dist"
+          /usr/local/bin/pvedisk --help
+          test ! -e /etc/pvedisk/config.yaml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debian-${{ matrix.debian }}-amd64
+          path: dist/pvedisk-linux-amd64-debian${{ matrix.debian }}
+          if-no-files-found: error
+
+  artifacts:
+    name: Checksummed release bundle
+    runs-on: ubuntu-24.04
+    needs: debian
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: debian-*-amd64
+          path: dist
+          merge-multiple: true
+      - name: Package installer, licenses, and checksum manifest
+        run: |
+          cp scripts/install.sh dist/install.sh
+          cp LICENSE dist/LICENSE
+          cp third_party/guestfs/COPYING.LIB dist/COPYING.LIB
+          cd dist
+          sha256sum pvedisk-linux-amd64-debian12 pvedisk-linux-amd64-debian13 install.sh LICENSE COPYING.LIB > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pvedisk-linux-amd64
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish tagged release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    needs: artifacts
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pvedisk-linux-amd64
+          path: dist
+      - name: Validate semantic version tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]
+      - name: Publish raw binaries and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" dist/* --verify-tag --title "$RELEASE_TAG" --generate-notes

@@ -1,0 +1,362 @@
+package session
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/jeeftor/pvedisk/internal/config"
+	"github.com/jeeftor/pvedisk/internal/proxmox"
+)
+
+func (m *Manager) intent(id int, root string, ro bool) (*State, error) {
+	if err := validID(id); err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(m.statePath(id)); !errors.Is(err, os.ErrNotExist) {
+		return nil, errors.New("a repair session already exists; inspect status and use unmount or recover")
+	}
+	canonical, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, err
+	}
+	if !filepath.IsAbs(root) || canonical == "/" {
+		return nil, errors.New("your mount root must be an absolute directory other than /")
+	}
+	fi, err := os.Stat(canonical)
+	if err != nil || !fi.IsDir() {
+		return nil, errors.New("your mount root must be an existing directory")
+	}
+	if fi.Mode().Perm()&0022 != 0 {
+		return nil, errors.New("your mount root must not be writable by your group or other users")
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Geteuid() {
+		return nil, errors.New("your mount root must be owned by root")
+	}
+	token := make([]byte, 32)
+	if _, err = rand.Read(token); err != nil {
+		return nil, err
+	}
+	s := &State{VMID: id, Token: hex.EncodeToString(token), Phase: "pending", Root: canonical, ReadOnly: ro, Public: filepath.Join(canonical, fmt.Sprintf("vm%d", id)), Extras: filepath.Join(canonical, fmt.Sprintf("vm%d-extra", id)), Staging: filepath.Join(m.root, fmt.Sprintf("vm%d-stage", id))}
+	for _, p := range []string{s.Public, s.Extras, s.Staging} {
+		if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("your destination is occupied: %s", p)
+		}
+	}
+	return s, m.save(s)
+}
+
+// Mount starts a detached worker and waits until its public views are available.
+func (m *Manager) Mount(ctx context.Context, id int, configPath string, ro bool) error {
+	if runtime.GOOS != "linux" {
+		return errors.New("repair operations require Linux on a Proxmox host")
+	}
+	err := m.locked(func() error {
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			return err
+		}
+		s, err := m.intent(id, cfg.MountRoot, ro)
+		if err != nil {
+			return err
+		}
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		log, err := os.OpenFile(filepath.Join(m.root, strconv.Itoa(id)+".log"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			return err
+		}
+		defer log.Close()
+		cmd := exec.Command(exe, "_worker", strconv.Itoa(id))
+		cmd.Stdin = nil
+		cmd.Stdout = log
+		cmd.Stderr = log
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		if err = cmd.Start(); err != nil {
+			s.Phase = "failed"
+			s.Error = err.Error()
+			_ = m.save(s)
+			return err
+		}
+		_ = cmd.Process.Release()
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	timer := time.NewTicker(200 * time.Millisecond)
+	defer timer.Stop()
+	deadline := time.NewTimer(5 * time.Minute)
+	defer deadline.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("your worker continues independently; inspect status: %w", ctx.Err())
+		case <-deadline.C:
+			return errors.New("worker startup has not completed; inspect status and the private session log")
+		case <-timer.C:
+			s, err := m.Status(id)
+			if err != nil {
+				return err
+			}
+			if s.Phase == "mounted" {
+				return nil
+			}
+			if s.Phase == "failed" {
+				return fmt.Errorf("repair worker: %s", s.Error)
+			}
+		}
+	}
+}
+
+// Unmount asks the recorded worker to finalize its appliance before unlocking.
+func (m *Manager) Unmount(ctx context.Context, id int) error {
+	if err := validID(id); err != nil {
+		return err
+	}
+	s, err := m.Status(id)
+	if err != nil {
+		return err
+	}
+	live, err := alive(s.Worker)
+	if err != nil {
+		return err
+	}
+	if !live {
+		return errors.New("your worker is not alive; use recover")
+	}
+	d := net.Dialer{}
+	conn, err := d.DialContext(ctx, "unix", m.socketPath(id))
+	if err != nil {
+		return fmt.Errorf("contact repair worker: %w", err)
+	}
+	defer conn.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	} else {
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Minute))
+	}
+	if _, err = fmt.Fprintln(conn, s.Token); err != nil {
+		return err
+	}
+	buf := make([]byte, 8192)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return err
+	}
+	response := strings.TrimSpace(string(buf[:n]))
+	if response != "ok" {
+		return errors.New(response)
+	}
+	return nil
+}
+
+// Recover reconciles recorded processes, mounts and disk users before unlocking.
+func (m *Manager) Recover(ctx context.Context, id int) error {
+	s, err := m.Status(id)
+	if err != nil {
+		return err
+	}
+	live, err := alive(s.Worker)
+	if err != nil {
+		return err
+	}
+	if live {
+		return m.Unmount(ctx, id)
+	}
+	return m.locked(func() error {
+		s, err := m.Status(id)
+		if err != nil {
+			return err
+		}
+		if live, err := alive(s.Worker); err != nil || live {
+			if err != nil {
+				return err
+			}
+			return errors.New("your worker is active; use unmount")
+		}
+		if live, err := alive(s.Appliance); err != nil || live {
+			if err != nil {
+				return err
+			}
+			return errors.New("your appliance is still alive; protection is retained")
+		}
+		if err := recoverMounts(s); err != nil {
+			return err
+		}
+		if err := assertDisksUnused(s.Disks); err != nil {
+			return err
+		}
+		if s.PasswordFile != "" {
+			if err := scrubPassword(s.PasswordFile, m.root); err != nil {
+				return err
+			}
+		}
+		if s.ProtectionAttempted {
+			if err := proxmox.New().Release(ctx, id, s.Token); err != nil {
+				return fmt.Errorf("protection retained: %w", err)
+			}
+		}
+		return m.remove(s)
+	})
+}
+
+// ResetRoot changes the root password while holding the same startup protection.
+func (m *Manager) ResetRoot(ctx context.Context, id int, configPath string, password []byte) error {
+	defer clear(password)
+	if len(password) == 0 || strings.ContainsAny(string(password), "\x00\r\n") {
+		return errors.New("your password must be nonempty and contain no newline or zero byte")
+	}
+	return m.locked(func() error {
+		if _, err := config.Load(configPath); err != nil {
+			return err
+		}
+		if runtime.GOOS != "linux" {
+			return errors.New("password repair requires a Proxmox Linux host")
+		}
+		if err := validID(id); err != nil {
+			return err
+		}
+		if _, err := os.Lstat(m.statePath(id)); !errors.Is(err, os.ErrNotExist) {
+			return errors.New("unmount or recover your existing repair session first")
+		}
+		token := make([]byte, 32)
+		if _, err := rand.Read(token); err != nil {
+			return err
+		}
+		s := &State{VMID: id, Token: hex.EncodeToString(token), Phase: "password-pending"}
+		s.Worker, _ = identity(os.Getpid())
+		if err := m.save(s); err != nil {
+			return err
+		}
+		p := proxmox.New()
+		disks, err := p.Inspect(ctx, id)
+		if err != nil {
+			return m.fail(s, err)
+		}
+		s.Disks = disks
+		if err = m.save(s); err != nil {
+			return err
+		}
+		if err = p.Shutdown(ctx, id); err != nil {
+			return m.fail(s, err)
+		}
+		s.Phase = "acquiring"
+		s.ProtectionAttempted = true
+		if err = m.save(s); err != nil {
+			return err
+		}
+		disks, err = p.Acquire(ctx, id, s.Token)
+		if err != nil {
+			return m.fail(s, err)
+		}
+		s.Disks = disks
+		s.Phase = "password"
+		if err = m.save(s); err != nil {
+			return err
+		}
+		if err = assertDisksUnused(disks); err != nil {
+			return m.fail(s, err)
+		}
+		s.PasswordFile = filepath.Join(m.root, ".password-"+s.Token)
+		if err = m.save(s); err != nil {
+			return err
+		}
+		f, err := os.OpenFile(s.PasswordFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			return m.fail(s, err)
+		}
+		name := f.Name()
+		defer scrubPassword(name, m.root)
+		if _, err = f.Write(password); err != nil {
+			f.Close()
+			return m.fail(s, err)
+		}
+		if err = f.Close(); err != nil {
+			return m.fail(s, err)
+		}
+		args := []string{}
+		for _, disk := range disks {
+			args = append(args, "--format", disk.Format, "-a", disk.Path)
+		}
+		args = append(args, "--root-password", "file:"+name)
+		cmd := exec.CommandContext(ctx, "virt-customize", args...)
+		cmd.Env = append(os.Environ(), "LIBGUESTFS_BACKEND=direct")
+		if err = cmd.Run(); err != nil {
+			return m.fail(s, fmt.Errorf("password repair failed; inspect and recover your session: %w", err))
+		}
+		if err = assertDisksUnused(disks); err != nil {
+			return m.fail(s, err)
+		}
+		if err = p.Release(ctx, id, s.Token); err != nil {
+			return m.fail(s, err)
+		}
+		return m.remove(s)
+	})
+}
+
+func (m *Manager) fail(s *State, err error) error {
+	s.Phase = "failed"
+	s.Error = err.Error()
+	if saveErr := m.save(s); saveErr != nil {
+		return errors.Join(err, saveErr)
+	}
+	return err
+}
+func (m *Manager) remove(s *State) error {
+	for _, p := range s.CreatedPaths {
+		if p != "" {
+			if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	_ = os.Remove(m.socketPath(s.VMID))
+	_ = os.Remove(filepath.Join(m.root, strconv.Itoa(s.VMID)+".log"))
+	return os.Remove(m.statePath(s.VMID))
+}
+
+func scrubPassword(path, root string) error {
+	if filepath.Dir(path) != root || !strings.HasPrefix(filepath.Base(path), ".password-") {
+		return errors.New("invalid recorded password path")
+	}
+	fi, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() {
+		return errors.New("unsafe password file")
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(make([]byte, fi.Size()))
+	if err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Remove(path)
+}
