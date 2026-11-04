@@ -2,15 +2,16 @@
 
 Run `pvedisk mcp` on your Proxmox host to expose inspection and mount operations
 to an HTTP MCP client. Run host operations as root. The endpoint is `/mcp` and
-the default listener is `127.0.0.1:8766`.
+the fresh default listener is `127.0.0.1:8766`.
 
 ```sh
 pvedisk mcp
 ```
 
-Starting the server does not run setup, load your site configuration, or run
-doctor. The `mount` tool requires valid configuration when called. Select a
-fixed configuration file for that server process with the global flag:
+Starting the server loads saved MCP settings, then applies explicitly supplied
+flags. It never writes settings, runs setup, loads your site configuration, or
+runs doctor. The `mount` tool requires valid site configuration when called.
+Select a fixed site configuration file with the global flag:
 
 ```sh
 pvedisk --config /etc/pvedisk/config.yaml mcp
@@ -19,9 +20,71 @@ pvedisk --config /etc/pvedisk/config.yaml mcp
 Read-only tools, unmount, and recovery continue to work without valid site
 configuration because they use your host inventory or saved session paths.
 
+## Save settings and configure clients
+
+```sh
+pvedisk mcp setup
+pvedisk mcp
+```
+
+Setup saves your MCP listener/authentication choices and registers the `pvedisk`
+entry in supported clients found on your current `PATH`: Claude, Codex, and
+OpenCode. It does not install client software or start the server. Client files
+belong to your current account; running setup as root configures root's clients,
+not another user's or a remote machine's clients.
+
+MCP settings default to `$XDG_CONFIG_HOME/pvedisk/mcp.yaml`, or
+`~/.config/pvedisk/mcp.yaml` when `XDG_CONFIG_HOME` is unset. This file is separate
+from the site's mount-root configuration selected by `--config`. Tokens stay in
+separate private files; MCP YAML stores only their paths. Select an explicit MCP
+settings file with `--mcp-config`, supported by both setup and server startup:
+
+```sh
+pvedisk mcp setup --mcp-config /etc/pvedisk/mcp.yaml --client none
+pvedisk mcp --mcp-config /etc/pvedisk/mcp.yaml
+```
+
+Use these controls to choose what setup changes:
+
+```sh
+pvedisk mcp setup --detect                 # List installed clients; no settings read/write
+pvedisk mcp setup --guide                  # Print instructions; no files changed
+pvedisk mcp setup --client codex           # Register only your installed Codex client
+pvedisk mcp setup --client none            # Save server settings only
+pvedisk mcp setup --install=false          # Also saves settings without registering clients
+pvedisk mcp setup --port 9012 --client none # Change only the saved listener port
+```
+
+The default `--client all` configures only detected supported clients. Existing
+settings are retained unless explicitly overridden. `--listen` takes a host and
+port; an explicit `--port` replaces that port. Setup requires a fixed nonzero
+port. `--token` generates a private token if missing and reuses it on reruns;
+`--token-file` selects an existing token. `--no-token` clears a saved token-file
+selection, while selecting a token file clears saved tokenless mode. Explicit
+boolean values such as `--no-token=false` override saved values too.
+
+Client registration updates the `pvedisk` entry and preserves unrelated settings.
+Changed files receive private byte-exact backups. JSONC comments are preserved;
+Codex TOML is normalized on writing, so comments and formatting may change, with
+the original retained in its backup. Authenticated registrations store the
+bearer header in the private client configuration; its backups are credentials
+too. A client registration error reports that
+the server settings were saved and identifies the client that needs attention.
+
+Local registration uses the listener address and port; wildcard listeners use
+loopback for clients on the same host. For a client elsewhere, use `--guide`:
+it shows your saved or selected listener/authentication settings and a remote
+host placeholder or an SSH-forwarding route. Apply any guide-only overrides
+with setup before starting the server. Transfer tokens privately and use the
+appropriate URL in the remote account's client configuration.
+
+This setup flow follows the current QMP pattern. See the
+[shared-package follow-up design](mcp-shared-package.md) for the planned
+deduplication; this change does not extract a module or modify QMP.
+
 ## Listen and authentication modes
 
-The default loopback listener accepts clients without a bearer token. For your
+The fresh loopback default accepts clients without a bearer token. For your
 isolated LAN, explicitly select a non-loopback listener and tokenless mode:
 
 ```sh
@@ -33,13 +96,11 @@ Connect your MCP client's HTTP transport to
 MCP connection settings rather than treating it as a filesystem URL. Returned
 filesystem paths are on your Proxmox host, not on the client machine.
 
-To require a bearer token, create a private token file as root. The following
-command creates a random token and refuses to overwrite an existing file:
+To save authenticated LAN settings and create or reuse a private token:
 
 ```sh
-install -d -o root -g root -m 0750 /etc/pvedisk
-(umask 077; set -C; openssl rand -hex 32 > /etc/pvedisk/mcp.token)
-pvedisk mcp --listen 0.0.0.0:8766 --token-file /etc/pvedisk/mcp.token
+pvedisk mcp setup --client none --listen 0.0.0.0:8766 --token
+pvedisk mcp
 ```
 
 Configure your client to send `Authorization: Bearer <token-file contents>` on
@@ -87,16 +148,24 @@ Setup and password helpers are not exposed as MCP tools.
 
 ## Optional systemd service
 
-The repository includes [pvedisk-mcp.service](../deploy/pvedisk-mcp.service).
-It intentionally listens on your LAN at `0.0.0.0:8766` with `--no-token`.
-Copy the file to your host and install it manually:
+The repository includes [pvedisk-mcp.service](../deploy/pvedisk-mcp.service),
+which explicitly loads `/etc/pvedisk/mcp.yaml`. Create that file before enabling
+the service. For your isolated tokenless LAN, run:
+
+```sh
+pvedisk mcp setup --mcp-config /etc/pvedisk/mcp.yaml --client none --listen 0.0.0.0:8766 --no-token
+```
+
+Use `--token` instead of `--no-token` to generate or reuse the private token at
+`/etc/pvedisk/mcp.token`. Copy the service file to your host and install manually:
 
 ```sh
 install -m 0644 /path/to/pvedisk-mcp.service /etc/systemd/system/pvedisk-mcp.service
 ```
 
 Before enabling it, edit `ExecStart` if you want a different executable path,
-configuration file, listener, or `--token-file` instead of `--no-token`. Then run:
+site configuration file, or MCP settings path. Change listener/authentication
+settings with `mcp setup --mcp-config /etc/pvedisk/mcp.yaml`. Then run:
 
 ```sh
 systemctl daemon-reload

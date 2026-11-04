@@ -14,9 +14,9 @@ import (
 
 const maxTokenSize = 4096
 
-// readToken checks the opened file rather than its pathname so replacing the
+// ReadToken checks the opened file rather than its pathname so replacing the
 // pathname cannot substitute an unchecked file between inspection and reading.
-func readToken(path string) ([]byte, error) {
+func ReadToken(path string) ([]byte, error) {
 	if !filepath.IsAbs(path) {
 		return nil, errors.New("your bearer token file path must be absolute")
 	}

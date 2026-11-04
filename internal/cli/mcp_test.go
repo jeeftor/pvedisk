@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jeeftor/pvedisk/internal/config"
@@ -23,6 +25,7 @@ func TestMCPPassesListenerAuthAndParsedConfiguration(t *testing.T) {
 		{"token", []string{"--listen", "10.0.0.8:8766", "--token-file", "/etc/pvedisk/mcp.token"}, config.DefaultPath, mcpserver.HTTPOptions{Listen: "10.0.0.8:8766", TokenFile: "/etc/pvedisk/mcp.token"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			isolateMCPConfiguration(t)
 			ops := testOperations()
 			ops.load = func(string) (config.Config, error) {
 				t.Fatal("MCP startup loaded configuration")
@@ -52,6 +55,7 @@ func TestMCPPassesListenerAuthAndParsedConfiguration(t *testing.T) {
 }
 
 func TestMCPRejectsConflictingAuthFlagsBeforeServing(t *testing.T) {
+	isolateMCPConfiguration(t)
 	ops := testOperations()
 	ops.mcp = func(context.Context, string, mcpserver.HTTPOptions, io.Writer) error {
 		t.Fatal("served with conflicting authentication flags")
@@ -63,15 +67,17 @@ func TestMCPRejectsConflictingAuthFlagsBeforeServing(t *testing.T) {
 }
 
 func TestMCPPreservesBackendErrors(t *testing.T) {
+	isolateMCPConfiguration(t)
 	ops := testOperations()
 	failure := errors.New("your listener requires an explicit authentication mode")
 	ops.mcp = func(context.Context, string, mcpserver.HTTPOptions, io.Writer) error { return failure }
-	if _, err := execute(ops, "mcp", "--listen", "0.0.0.0:8766"); !errors.Is(err, failure) {
+	if _, err := execute(ops, "mcp", "--listen", "0.0.0.0:8766", "--no-token"); !errors.Is(err, failure) {
 		t.Fatalf("backend error changed: %v", err)
 	}
 }
 
 func TestMCPPropagatesCommandCancellation(t *testing.T) {
+	isolateMCPConfiguration(t)
 	ops := testOperations()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -89,6 +95,7 @@ func TestMCPPropagatesCommandCancellation(t *testing.T) {
 }
 
 func TestMCPRejectsPositionalArguments(t *testing.T) {
+	isolateMCPConfiguration(t)
 	ops := testOperations()
 	ops.mcp = func(context.Context, string, mcpserver.HTTPOptions, io.Writer) error {
 		t.Fatal("served with unexpected positional arguments")
@@ -96,5 +103,66 @@ func TestMCPRejectsPositionalArguments(t *testing.T) {
 	}
 	if _, err := execute(ops, "mcp", "400"); err == nil {
 		t.Fatal("unexpected positional argument accepted")
+	}
+}
+
+func isolateMCPConfiguration(t *testing.T) string {
+	t.Helper()
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("CODEX_HOME", filepath.Join(home, "codex"))
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, "claude"))
+	t.Setenv("OPENCODE_CONFIG", filepath.Join(home, "opencode.json"))
+	return home
+}
+
+func TestMCPStartupLoadsSavedSettingsBeforeChangedOverrides(t *testing.T) {
+	home := isolateMCPConfiguration(t)
+	path := filepath.Join(home, "server.yaml")
+	data := []byte("listen: 0.0.0.0:9100\nno_token: true\n")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		args []string
+		want mcpserver.HTTPOptions
+	}{
+		{nil, mcpserver.HTTPOptions{Listen: "0.0.0.0:9100", NoToken: true}},
+		{[]string{"--listen", "127.0.0.1:9101", "--no-token=false"}, mcpserver.HTTPOptions{Listen: "127.0.0.1:9101"}},
+		{[]string{"--token-file", "/selected/token"}, mcpserver.HTTPOptions{Listen: "0.0.0.0:9100", TokenFile: "/selected/token"}},
+	} {
+		ops := testOperations()
+		ops.mcp = func(_ context.Context, _ string, options mcpserver.HTTPOptions, _ io.Writer) error {
+			if options != test.want {
+				t.Fatalf("options=%+v want=%+v", options, test.want)
+			}
+			return nil
+		}
+		if _, err := execute(ops, append([]string{"mcp", "--mcp-config", path}, test.args...)...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(data, after) {
+		t.Fatal("server startup changed settings")
+	}
+}
+
+func TestMCPStartupDoesNotCreateMissingDefaultSettings(t *testing.T) {
+	home := isolateMCPConfiguration(t)
+	ops := testOperations()
+	ops.mcp = func(context.Context, string, mcpserver.HTTPOptions, io.Writer) error { return nil }
+	if _, err := execute(ops, "mcp"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "config")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("startup created configuration directories")
+	}
+	if _, err := execute(ops, "mcp", "--mcp-config", filepath.Join(home, "missing.yaml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing explicit settings were ignored: %v", err)
 	}
 }

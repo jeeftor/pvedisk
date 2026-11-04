@@ -7,9 +7,8 @@ Type=simple
 User=root
 Group=root
 UMask=0077
-# This template intentionally allows tokenless clients on your airgap LAN.
-# Replace --no-token with --token-file /etc/pvedisk/mcp.token for bearer auth.
-ExecStart=/usr/local/bin/pvedisk --config /etc/pvedisk/config.yaml mcp --listen 0.0.0.0:8766 --no-token
+# Save this file's listener/authentication choices with mcp setup before enabling.
+ExecStart=/usr/local/bin/pvedisk --config /etc/pvedisk/config.yaml mcp --mcp-config /etc/pvedisk/mcp.yaml
 Restart=on-failure
 RestartSec=5
 # Detached repair workers must survive an MCP server restart.

@@ -33,7 +33,7 @@ func RunHTTP(ctx context.Context, configPath string, options HTTPOptions, output
 	var token []byte
 	if options.TokenFile != "" {
 		var err error
-		token, err = readToken(options.TokenFile)
+		token, err = ReadToken(options.TokenFile)
 		if err != nil {
 			return err
 		}

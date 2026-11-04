@@ -185,14 +185,28 @@ you must already have access to the shadow file you select.
 Expose your host's VM inspection and mount tools to an HTTP MCP client:
 
 ```sh
+pvedisk mcp setup
 pvedisk mcp
+# Save only server settings, without registering clients:
+pvedisk mcp setup --client none
 # Explicit tokenless access on your isolated LAN:
 pvedisk mcp --listen 0.0.0.0:8766 --no-token
 # Or require your private bearer token:
 pvedisk mcp --listen 0.0.0.0:8766 --token-file /etc/pvedisk/mcp.token
 ```
 
-The default endpoint is `http://127.0.0.1:8766/mcp`. The server exposes VM and
+Setup saves MCP settings and registers `pvedisk` in supported clients detected
+on your current `PATH`. It configures the current account's clients (root's
+clients when run as root), installs no client software, and never starts the
+server. `--detect` and `--guide` provide read-only output. Use `--client` to select
+all detected clients, none, Claude, Codex, or OpenCode; `--install=false` saves
+only server settings. Changed client files receive private backups.
+
+MCP settings default to `$XDG_CONFIG_HOME/pvedisk/mcp.yaml`, with
+`~/.config/pvedisk/mcp.yaml` as the fallback. `mcp --mcp-config PATH` selects a
+different settings file, independently of the site's `--config`. Server startup
+loads saved settings and applies explicit flag overrides without writing files.
+The fresh default endpoint is `http://127.0.0.1:8766/mcp`. The server exposes VM and
 session inspection, worker listing, version, doctor, mount, unmount, and recovery.
 Mounting remains writable by default; a read-only request still stops and locks
 your VM. A disconnected client can leave its detached worker running, so inspect

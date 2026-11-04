@@ -64,8 +64,9 @@ build() {
     cp third_party/guestfs/COPYING.LIB "$output/COPYING.LIB"
     cp deploy/pvedisk-mcp.service "$output/pvedisk-mcp.service"
     cp docs/recovery.md "$output/recovery.md"
+    cp docs/mcp-shared-package.md "$output/mcp-shared-package.md"
     sed 's|../deploy/pvedisk-mcp.service|pvedisk-mcp.service|g' docs/mcp.md > "$output/MCP.md"
-    (cd "$output" && sha256sum "$artifact" install.sh LICENSE COPYING.LIB pvedisk-mcp.service recovery.md MCP.md > SHA256SUMS)
+    (cd "$output" && sha256sum "$artifact" install.sh LICENSE COPYING.LIB pvedisk-mcp.service recovery.md MCP.md mcp-shared-package.md > SHA256SUMS)
     (cd "$output" && sha256sum --check SHA256SUMS)
 }
 

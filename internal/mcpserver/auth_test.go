@@ -23,7 +23,7 @@ func TestReadToken(t *testing.T) {
 			if err := os.Chmod(path, mode); err != nil {
 				t.Fatal(err)
 			}
-			token, err := readToken(path)
+			token, err := ReadToken(path)
 			if err != nil || string(token) != secret {
 				t.Fatalf("valid token rejected or changed: %v", err)
 			}
@@ -55,7 +55,7 @@ func TestReadTokenRejectsInvalidContents(t *testing.T) {
 			if err := os.WriteFile(path, []byte(test.contents), 0600); err != nil {
 				t.Fatal(err)
 			}
-			token, err := readToken(path)
+			token, err := ReadToken(path)
 			if err == nil || token != nil {
 				t.Fatal("accepted invalid bearer token contents")
 			}
@@ -76,7 +76,7 @@ func TestReadTokenRejectsUnsafeFile(t *testing.T) {
 		if err := os.Chmod(path, mode); err != nil {
 			t.Fatal(err)
 		}
-		if token, err := readToken(path); err == nil || token != nil {
+		if token, err := ReadToken(path); err == nil || token != nil {
 			t.Fatalf("accepted unsafe file permissions %04o", mode)
 		}
 	}
@@ -92,7 +92,7 @@ func TestReadTokenRejectsUnsafeFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, unsafe := range []string{"relative-token", filepath.Join(base, "missing"), link, base, fifo} {
-		if token, err := readToken(unsafe); err == nil || token != nil {
+		if token, err := ReadToken(unsafe); err == nil || token != nil {
 			t.Fatalf("accepted unsafe bearer token file %q", unsafe)
 		}
 	}
@@ -109,7 +109,7 @@ func TestReadTokenRejectsOtherOwner(t *testing.T) {
 	if err := os.Chown(path, 65534, -1); err != nil {
 		t.Fatal(err)
 	}
-	if token, err := readToken(path); err == nil || token != nil {
+	if token, err := ReadToken(path); err == nil || token != nil {
 		t.Fatal("accepted token file owned by another user")
 	}
 }
