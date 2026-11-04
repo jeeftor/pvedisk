@@ -8,7 +8,7 @@ prepare_toolchain() {
     trap 'exit 1' HUP INT TERM
     apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        ca-certificates curl git build-essential pkg-config libguestfs-dev libcrypt-dev shellcheck
+        ca-certificates curl git build-essential pkg-config libguestfs-dev libcrypt-dev shellcheck jq
 
     # Preserve your existing trust inputs while adding job-provided CA chains.
     ca_bundle="$tool_dir/ci-ca.pem"
@@ -41,21 +41,25 @@ build() {
     test -z "$(gofmt -l main.go internal)" || { gofmt -l main.go internal; exit 1; }
     go mod verify
     shellcheck scripts/*.sh
+    sh scripts/test-build.sh
     make
     go vet ./...
     go test -race -timeout 10m ./...
 
-    version="0.1.0-dev+${CI_COMMIT_SHORT_SHA}"
-    if [ -n "${CI_COMMIT_TAG:-}" ]; then version=$CI_COMMIT_TAG; fi
     output=dist
     artifact=pvedisk
     mkdir -p "$output"
-    go build -trimpath -buildvcs=false \
-        -ldflags "-X github.com/jeeftor/pvedisk/internal/cli.Version=$version" \
-        -o "$output/$artifact" .
+    sh scripts/build.sh "$output/$artifact"
     ldd "$output/$artifact"
     "$output/$artifact" --help
-    "$output/$artifact" --version
+    expected_version="$(cat VERSION)-dev+$(printf '%s' "$CI_COMMIT_SHA" | cut -c 1-12)"
+    if [ -n "${CI_COMMIT_TAG:-}" ]; then expected_version=$CI_COMMIT_TAG; fi
+    test "$("$output/$artifact" version --short)" = "$expected_version"
+    test "$("$output/$artifact" --version)" = "$expected_version"
+    "$output/$artifact" version
+    "$output/$artifact" version --json | jq -e \
+        --arg version "$expected_version" --arg commit "$CI_COMMIT_SHA" \
+        '.version == $version and .commit == $commit and .source == "gitlab" and .os == "linux" and .arch == "amd64" and .go_version == "go1.27.3" and (.build_date | fromdateiso8601 | . <= now and . >= now - 600)'
     cp scripts/install.sh "$output/install.sh"
     cp LICENSE "$output/LICENSE"
     cp third_party/guestfs/COPYING.LIB "$output/COPYING.LIB"
@@ -89,7 +93,9 @@ installation() {
     (cd "$output" && sha256sum --check SHA256SUMS)
     sh "$output/install.sh" --artifact-dir "$PWD/$output"
     /usr/local/bin/pvedisk --help
-    /usr/local/bin/pvedisk --version
+    /usr/local/bin/pvedisk version
+    /usr/local/bin/pvedisk version --short
+    /usr/local/bin/pvedisk version --json
     if command -v go || command -v gcc; then
         echo 'Your clean runtime verification container unexpectedly contains a compiler.' >&2
         exit 1

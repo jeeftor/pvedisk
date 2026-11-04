@@ -60,6 +60,13 @@ func (m *Manager) prepare() error {
 	if err := os.MkdirAll(m.root, 0700); err != nil {
 		return err
 	}
+	return m.inspectRoot()
+}
+
+func (m *Manager) inspectRoot() error {
+	if os.Geteuid() != 0 && m.root == stateRoot {
+		return errors.New("you must run pvedisk as root")
+	}
 	fi, err := os.Lstat(m.root)
 	if err != nil {
 		return err
@@ -129,6 +136,10 @@ func (m *Manager) Status(id int) (*State, error) {
 	if err := m.prepare(); err != nil {
 		return nil, err
 	}
+	return m.readState(id)
+}
+
+func (m *Manager) readState(id int) (*State, error) {
 	fi, err := os.Lstat(m.statePath(id))
 	if err != nil {
 		return nil, err

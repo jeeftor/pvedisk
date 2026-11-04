@@ -97,3 +97,45 @@ func TestReleasePreservesUncertainProtection(t *testing.T) {
 		t.Fatal("lost release failure")
 	}
 }
+
+func TestListLocalVMs(t *testing.T) {
+	want := []VM{{ID: 400, Name: "linux", Status: "running"}, {ID: 401, Name: "backup", Status: "stopped", UnavailableReason: "Proxmox lock: backup"}}
+	c := &Client{euid: func() int { return 0 }, run: func(_ context.Context, name string, args []string, _ string) ([]byte, error) {
+		if name != "perl" || len(args) != 4 || args[3] != "list" {
+			t.Fatalf("unexpected listing invocation: %s %v", name, args)
+		}
+		return []byte(`[{"id":400,"name":"linux","status":"running"},{"id":401,"name":"backup","status":"stopped","unavailable_reason":"Proxmox lock: backup"}]`), nil
+	}}
+	got, err := c.List(context.Background())
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("VMs=%v err=%v", got, err)
+	}
+	c.euid = func() int { return 1000 }
+	if _, err := c.List(context.Background()); err == nil {
+		t.Fatal("accepted nonroot listing")
+	}
+}
+
+func TestListRejectsUnsupportedMetadata(t *testing.T) {
+	for _, output := range []string{`null`, `{}`, `[{"id":99,"name":"bad","status":"stopped"}]`, `[{"id":400,"status":"stopped"}]`, `[{"id":400,"name":"linux"}]`, `[{"id":400,"name":"one","status":"stopped"},{"id":400,"name":"two","status":"running"}]`} {
+		t.Run(output, func(t *testing.T) {
+			c := &Client{euid: func() int { return 0 }, run: func(context.Context, string, []string, string) ([]byte, error) { return []byte(output), nil }}
+			if _, err := c.List(context.Background()); err == nil {
+				t.Fatal("accepted unsupported VM metadata")
+			}
+		})
+	}
+}
+
+func TestListEmptyAndFailure(t *testing.T) {
+	c := &Client{euid: func() int { return 0 }, run: func(context.Context, string, []string, string) ([]byte, error) { return []byte(`[]`), nil }}
+	if got, err := c.List(context.Background()); err != nil || len(got) != 0 {
+		t.Fatalf("empty listing=%v err=%v", got, err)
+	}
+	c.run = func(context.Context, string, []string, string) ([]byte, error) {
+		return nil, errors.New("Proxmox unavailable")
+	}
+	if _, err := c.List(context.Background()); err == nil || !strings.Contains(err.Error(), "Proxmox unavailable") {
+		t.Fatalf("lost listing failure: %v", err)
+	}
+}

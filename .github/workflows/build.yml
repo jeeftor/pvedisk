@@ -29,7 +29,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates curl git build-essential pkg-config libguestfs-dev libcrypt-dev \
-            libguestfs-tools libguestfs-xfs fuse3 qemu-system-x86 linux-image-amd64 shellcheck
+            libguestfs-tools libguestfs-xfs fuse3 qemu-system-x86 linux-image-amd64 shellcheck jq
           if [ ! -e /dev/fuse ]; then mknod /dev/fuse c 10 229; fi
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -41,6 +41,7 @@ jobs:
           test -z "$(gofmt -l main.go internal)" || { gofmt -l main.go internal; exit 1; }
           go mod verify
           shellcheck scripts/*.sh
+          sh scripts/test-build.sh
           make
       - name: Vet and unit tests against native libguestfs
         run: |
@@ -49,24 +50,28 @@ jobs:
       - name: Linux disk-image integration tests
         run: go test -v -tags integration -timeout 15m ./internal/appliance
       - name: Build and inspect native executable
-        env:
-          BUILD_REF: ${{ github.ref }}
-          BUILD_TAG: ${{ github.ref_name }}
-          BUILD_SHA: ${{ github.sha }}
         run: |
           mkdir -p dist
-          version="0.1.0-dev+$(printf '%s' "$BUILD_SHA" | cut -c 1-12)"
-          case "$BUILD_REF" in refs/tags/v*) version=$BUILD_TAG ;; esac
-          go build -trimpath -buildvcs=false -ldflags "-X github.com/jeeftor/pvedisk/internal/cli.Version=$version" -o dist/pvedisk .
+          sh scripts/build.sh dist/pvedisk
           ldd dist/pvedisk
           dist/pvedisk --help
-          dist/pvedisk --version
+          expected_version="$(cat VERSION)-dev+$(printf '%s' "$GITHUB_SHA" | cut -c 1-12)"
+          case "$GITHUB_REF" in refs/tags/*) expected_version=${GITHUB_REF#refs/tags/} ;; esac
+          test "$(dist/pvedisk version --short)" = "$expected_version"
+          test "$(dist/pvedisk --version)" = "$expected_version"
+          dist/pvedisk version
+          dist/pvedisk version --json | jq -e \
+            --arg version "$expected_version" --arg commit "$GITHUB_SHA" \
+            '.version == $version and .commit == $commit and .source == "github" and .os == "linux" and .arch == "amd64" and .go_version == "go1.27.3" and (.build_date | fromdateiso8601 | . <= now and . >= now - 600)'
           cd dist
           sha256sum pvedisk > SHA256SUMS
       - name: Verify installation on this Debian version
         run: |
           sh scripts/install.sh --artifact-dir "$PWD/dist"
           /usr/local/bin/pvedisk --help
+          /usr/local/bin/pvedisk version
+          /usr/local/bin/pvedisk version --short
+          /usr/local/bin/pvedisk version --json
           test ! -e /etc/pvedisk/config.yaml
       - uses: actions/upload-artifact@v4
         with:
@@ -138,7 +143,9 @@ jobs:
         run: |
           sh dist/install.sh --artifact-dir "$PWD/dist"
           /usr/local/bin/pvedisk --help
-          /usr/local/bin/pvedisk --version
+          /usr/local/bin/pvedisk version
+          /usr/local/bin/pvedisk version --short
+          /usr/local/bin/pvedisk version --json
           if command -v go || command -v gcc; then
             echo 'The runtime verification container unexpectedly contains a compiler.' >&2
             exit 1

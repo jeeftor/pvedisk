@@ -8,7 +8,10 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/jeeftor/pvedisk/internal/session"
 )
 
@@ -54,16 +57,18 @@ func TestJSONWithoutColorsIsUnchanged(t *testing.T) {
 func TestRedirectedStatusIsIndentedJSON(t *testing.T) {
 	ops := testOperations()
 	state := &session.State{VMID: 400, Phase: "mounted", Public: "/repairs/vm400", ReadOnly: true}
-	ops.status = func(int) (*session.State, error) { return state, nil }
+	ops.describe = func(int) (*session.Description, error) {
+		return &session.Description{VMID: 400, State: state, Observation: session.Observation{Status: "mounted"}}, nil
+	}
 	output, err := execute(ops, "status", "400")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !json.Valid([]byte(output)) || strings.Contains(output, "\x1b") || !strings.Contains(output, "\n  \"vmid\": 400") {
+	if !json.Valid([]byte(output)) || strings.Contains(output, "\x1b") || !strings.Contains(output, "\"vmid\": 400") {
 		t.Fatalf("invalid redirected output: %q", output)
 	}
-	var decoded session.State
-	if err := json.Unmarshal([]byte(output), &decoded); err != nil || decoded.VMID != 400 || decoded.Phase != "mounted" || !decoded.ReadOnly {
+	var decoded session.Description
+	if err := json.Unmarshal([]byte(output), &decoded); err != nil || decoded.VMID != 400 || decoded.State.Phase != "mounted" || !decoded.State.ReadOnly || decoded.Observation.Status != "mounted" {
 		t.Fatalf("state changed: %+v err=%v", decoded, err)
 	}
 }
@@ -111,5 +116,44 @@ func TestRedirectedErrorsRemainAvailableForStructuredLogging(t *testing.T) {
 	var output bytes.Buffer
 	if PrintError(&output, errors.New("failure")) || output.Len() != 0 {
 		t.Fatalf("consumed redirected error: %q", output.String())
+	}
+}
+
+func TestTerminalPanelsHelpAndProgressAreVisiblyStyled(t *testing.T) {
+	p := newPalette(io.Discard, true)
+	content := "Usage:\n  pvedisk [command]\nAvailable Commands:\n  mount       Mount your guest\nFlags:\n      --config string   Configuration path\n  -h, --help            help\n"
+	help := renderHelp(p, content, 60)
+	for _, want := range []string{"╭", "pvedisk", p.path.Render("mount"), p.label.Render("--config"), p.label.Render("--help")} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("missing styled help item %q: %q", want, help)
+		}
+	}
+	if got := renderHelp(newPalette(io.Discard, false), content, 60); got != content {
+		t.Fatal("plain help changed")
+	}
+	progress := ansiEscape.ReplaceAllString(mountProgress(p, 400, "launching", "starting your appliance", 3*time.Second), "")
+	for _, want := range []string{"LAUNCHING", "VM 400", "+3s", "starting your appliance"} {
+		if !strings.Contains(progress, want) {
+			t.Fatalf("missing %q in %q", want, progress)
+		}
+	}
+	if got := mountProgress(newPalette(io.Discard, false), 400, "launching", "starting your appliance", 3*time.Second); got != "VM 400: starting your appliance" {
+		t.Fatalf("plain progress changed: %q", got)
+	}
+}
+
+func TestWizardPanelResizesToYourTerminal(t *testing.T) {
+	model := newSetupModel("/a/long/destination/for/your/disks")
+	model.setPalette(newPalette(io.Discard, true))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 42, Height: 20})
+	model = updated.(setupModel)
+	view := model.View()
+	if !strings.Contains(view, "╭") {
+		t.Fatalf("missing setup panel: %q", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if width := lipgloss.Width(line); width > 42 {
+			t.Fatalf("setup line exceeds terminal width: %d %q", width, line)
+		}
 	}
 }

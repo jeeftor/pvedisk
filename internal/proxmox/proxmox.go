@@ -20,6 +20,14 @@ type Disk struct {
 	Format string `json:"format"`
 }
 
+// VM describes a local VM and any known reason that prevents disk repair.
+type VM struct {
+	ID                int    `json:"id"`
+	Name              string `json:"name"`
+	Status            string `json:"status"`
+	UnavailableReason string `json:"unavailable_reason,omitempty"`
+}
+
 //go:embed helper.pl
 var helper string
 
@@ -62,6 +70,32 @@ func (c *Client) call(ctx context.Context, operation string, id int, token strin
 		return nil, fmt.Errorf("decode Proxmox %s result: %w", operation, err)
 	}
 	return disks, nil
+}
+
+// List reads local VM names, states, and repair restrictions without changing VM state.
+func (c *Client) List(ctx context.Context) ([]VM, error) {
+	if c.euid() != 0 {
+		return nil, errors.New("you must list Proxmox VMs as root")
+	}
+	out, err := c.run(ctx, "perl", []string{"-e", helper, "--", "list"}, "")
+	if err != nil {
+		return nil, fmt.Errorf("list local Proxmox VMs: %w", err)
+	}
+	var vms []VM
+	if err := json.Unmarshal(out, &vms); err != nil {
+		return nil, fmt.Errorf("decode local Proxmox VM list: %w", err)
+	}
+	if vms == nil {
+		return nil, errors.New("decode local Proxmox VM list: expected an array")
+	}
+	seen := make(map[int]bool, len(vms))
+	for _, vm := range vms {
+		if vm.ID < 100 || vm.ID > 999999999 || vm.Name == "" || vm.Status == "" || seen[vm.ID] {
+			return nil, errors.New("decode local Proxmox VM list: invalid or duplicate VM metadata")
+		}
+		seen[vm.ID] = true
+	}
+	return vms, nil
 }
 
 // Inspect validates lifecycle constraints and discovers attached disk paths.

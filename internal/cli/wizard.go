@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,6 +20,7 @@ type setupModel struct {
 	cancelled  bool
 	err        error
 	styles     palette
+	width      int
 }
 
 func newSetupModel(initial string) setupModel {
@@ -27,7 +29,7 @@ func newSetupModel(initial string) setupModel {
 	input.Placeholder = "Enter an absolute directory"
 	input.SetValue(initial)
 	input.Focus()
-	m := setupModel{input: input}
+	m := setupModel{input: input, width: 80}
 	m.setPalette(outputPalette(os.Stdout))
 	return m
 }
@@ -43,6 +45,11 @@ func (m *setupModel) setPalette(styles palette) {
 func (m setupModel) Init() tea.Cmd { return textinput.Blink }
 
 func (m setupModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	if size, ok := message.(tea.WindowSizeMsg); ok {
+		m.width = size.Width
+		m.input.Width = max(8, size.Width-30)
+		return m, nil
+	}
 	if key, ok := message.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "ctrl+c", "esc":
@@ -91,13 +98,14 @@ func (m setupModel) View() string {
 		if m.missing {
 			creation = p.warning.Render(fmt.Sprintf("Create your missing directory %s?", m.canonical)) + "\n"
 		}
-		return title + "\n" + p.muted.Render("2 / 2  Review and confirm") + "\n\n" + p.path.Render(layout(m.canonical)) + "\n" + creation + p.label.Render("Save this configuration"+confirmationSuffix(m.missing)) + " " + p.success.Render("[y/N]") + " " + p.muted.Render("(Escape cancels)") + "\n"
+		content := title + "\n" + p.muted.Render("2 / 2  Review and confirm") + "\n\n" + p.path.Render(layout(m.canonical)) + "\n" + creation + p.label.Render("Save this configuration"+confirmationSuffix(m.missing)) + " " + p.success.Render("[y/N]") + " " + p.muted.Render("(Escape cancels)")
+		return p.panel(content, m.width) + "\n"
 	}
 	message := title + "\n" + p.muted.Render("1 / 2  Choose your destination") + "\n\n" + m.input.View() + "\n\n" + p.muted.Render("Enter continues; Escape cancels.") + "\n"
 	if m.err != nil {
 		message += "\n" + p.warning.Render(m.err.Error()) + "\n"
 	}
-	return message
+	return p.panel(strings.TrimSuffix(message, "\n"), m.width) + "\n"
 }
 
 func confirmationSuffix(missing bool) string {

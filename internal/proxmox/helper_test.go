@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -146,5 +147,82 @@ func TestEmbeddedHelperLifecycle(t *testing.T) {
 				t.Fatalf("ownership record remains: %v", err)
 			}
 		})
+	}
+}
+
+func TestEmbeddedHelperListsOnlyLocalMetadata(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("embedded helper requires root; run in Debian CI containers")
+	}
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("Perl is unavailable")
+	}
+	conf := map[string]any{
+		"400": map[string]any{"name": "linux", "scsi0": "deliberately invalid disk metadata"},
+		"401": map[string]any{"name": "web", "test_running": true},
+		"402": map[string]any{"name": "backup", "lock": "backup"},
+		"403": map[string]any{"name": "ha", "test_ha": true},
+		"404": map[string]any{"name": "sleeping", "lock": "suspended", "vmstate": "saved-state"},
+		"405": map[string]any{"name": "base", "template": true},
+		"406": map[string]any{"name": "pending", "pending": map[string]string{"scsi0": "new-disk"}},
+		"407": map[string]any{"name": "paused", "test_running": true, "test_qmp": "paused"},
+		"408": map[string]any{"name": "unknown-monitor", "test_running": true, "test_qmp": ""},
+		"409": map[string]any{"name": "remote", "test_remote": true},
+		"410": map[string]any{},
+	}
+	path := filepath.Join(t.TempDir(), "vms.json")
+	run := func() ([]byte, error) {
+		cmd := exec.Command("perl", "-Itestdata", "-e", helper, "--", "list")
+		cmd.Env = append(os.Environ(), "PVEDISK_TEST_LIST=1", "PVEDISK_TEST_CONFIG="+path)
+		return cmd.CombinedOutput()
+	}
+	write := func() []byte {
+		t.Helper()
+		data, err := json.Marshal(conf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	before := write()
+	out, err := run()
+	if err != nil {
+		t.Fatalf("list local metadata: %v: %s", err, out)
+	}
+	var got []VM
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []VM{
+		{ID: 400, Name: "linux", Status: "stopped"},
+		{ID: 401, Name: "web", Status: "running"},
+		{ID: 402, Name: "backup", Status: "stopped", UnavailableReason: "Proxmox lock: backup"},
+		{ID: 403, Name: "ha", Status: "stopped", UnavailableReason: "HA-managed"},
+		{ID: 404, Name: "sleeping", Status: "stopped", UnavailableReason: "Proxmox lock: suspended; suspended state"},
+		{ID: 405, Name: "base", Status: "stopped", UnavailableReason: "template"},
+		{ID: 406, Name: "pending", Status: "stopped", UnavailableReason: "pending configuration changes"},
+		{ID: 407, Name: "paused", Status: "paused", UnavailableReason: "VM is paused"},
+		{ID: 408, Name: "unknown-monitor", Status: "running", UnavailableReason: "monitor status unavailable"},
+		{ID: 410, Name: "VM 410", Status: "stopped"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("VM listing:\ngot  %#v\nwant %#v", got, want)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("listing changed configuration: %v", err)
+	}
+	conf = map[string]any{"400": map[string]any{"test_status": "unsupported"}}
+	write()
+	if out, err := run(); err == nil || !strings.Contains(string(out), "cannot determine status") {
+		t.Fatalf("unsupported status accepted: %v: %s", err, out)
+	}
+	conf = map[string]any{}
+	write()
+	if out, err := run(); err != nil || strings.TrimSpace(string(out)) != "[]" {
+		t.Fatalf("empty inventory: %v: %s", err, out)
 	}
 }

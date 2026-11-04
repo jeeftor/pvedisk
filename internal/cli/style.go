@@ -7,8 +7,10 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/jeeftor/pvedisk/internal/buildinfo"
 	"github.com/muesli/termenv"
 	"golang.org/x/term"
 )
@@ -48,7 +50,32 @@ func newPalette(output io.Writer, enabled bool) palette {
 
 func outputPalette(output io.Writer) palette { return newPalette(output, colorEnabled(output)) }
 
+func terminalWidth(output io.Writer) int {
+	if file, ok := output.(*os.File); ok {
+		if width, _, err := term.GetSize(int(file.Fd())); err == nil && width > 0 {
+			return min(width, 100)
+		}
+	}
+	return 80
+}
+
+func (p palette) panel(content string, width int) string {
+	if !p.enabled || width < 24 {
+		return content
+	}
+	return p.title.UnsetForeground().UnsetBold().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("81")).Padding(1, 2).Width(max(12, width-6)).Render(content)
+}
+
+func mountProgress(p palette, id int, phase, message string, elapsed time.Duration) string {
+	if !p.enabled {
+		return fmt.Sprintf("VM %d: %s", id, message)
+	}
+	badge := p.title.Reverse(true).Render(" " + strings.ToUpper(phase) + " ")
+	return fmt.Sprintf("%s %s %s\n  %s", badge, p.label.Render(fmt.Sprintf("VM %d", id)), p.muted.Render("+"+elapsed.Round(time.Second).String()), p.muted.Render(message))
+}
+
 var jsonToken = regexp.MustCompile("\"(?:\\\\.|[^\"\\\\])*\"|-?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null")
+var helpFlag = regexp.MustCompile(`--?[a-zA-Z][a-zA-Z0-9-]*`)
 
 func (p palette) json(data []byte) string {
 	text := string(data)
@@ -90,16 +117,36 @@ func writeStatus(output io.Writer, state any) error {
 
 func styledHelp(output io.Writer, text string) string {
 	p := outputPalette(output)
+	return renderHelp(p, text, terminalWidth(output))
+}
+
+func renderHelp(p palette, text string, width int) string {
 	if !p.enabled {
 		return text
 	}
+	banner := p.panel(p.title.Render("pvedisk")+"  "+p.success.Render(buildinfo.Version)+"\n"+p.muted.Render("Offline disk repair for your Proxmox Linux guests"), width)
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
 		if i == 0 || (line != "" && !strings.HasPrefix(line, " ") && strings.HasSuffix(line, ":")) {
 			lines[i] = p.title.Render(line)
+		} else if strings.HasPrefix(line, "  ") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			if strings.HasPrefix(trimmed, "-") {
+				lines[i] = helpFlag.ReplaceAllStringFunc(line, func(flag string) string { return p.label.Render(flag) })
+			} else if !strings.HasPrefix(trimmed, "pvedisk") && strings.Contains(line, "  ") {
+				fields := strings.Fields(line)
+				if len(fields) > 0 {
+					start := strings.Index(line, fields[0])
+					end := start + len(fields[0])
+					lines[i] = line[:start] + p.path.Render(fields[0]) + line[end:]
+				}
+			}
 		}
 	}
-	return strings.Join(lines, "\n")
+	return banner + "\n\n" + strings.Join(lines, "\n")
 }
 
 // PrintError renders terminal errors clearly while keeping machine logs structured.

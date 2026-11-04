@@ -2,17 +2,17 @@
 package cli
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
+	"github.com/jeeftor/pvedisk/internal/buildinfo"
 	"github.com/jeeftor/pvedisk/internal/config"
 	"github.com/jeeftor/pvedisk/internal/proxmox"
 	"github.com/jeeftor/pvedisk/internal/session"
@@ -21,23 +21,23 @@ import (
 )
 
 type operations struct {
-	hasSessions func() (bool, error)
-	setupLock   func(func() error) error
-	mount       func(context.Context, int, string, bool, func(string)) error
-	unmount     func(context.Context, int) error
-	recover     func(context.Context, int) error
-	reset       func(context.Context, int, string, []byte) error
-	worker      func(context.Context, int) error
-	status      func(int) (*session.State, error)
-	doctor      func(context.Context) error
-	load        func(string) (config.Config, error)
-	save        func(string, config.Config) error
-	terminal    func(*cobra.Command) bool
-	password    func(*cobra.Command) ([]byte, error)
+	hasSessions  func() (bool, error)
+	setupLock    func(func() error) error
+	mount        func(context.Context, int, string, bool, func(string)) error
+	unmount      func(context.Context, int) error
+	recover      func(context.Context, int) error
+	reset        func(context.Context, int, string, []byte) error
+	worker       func(context.Context, int) error
+	status       func(int) (*session.State, error)
+	describe     func(int) (*session.Description, error)
+	listSessions func() ([]session.Description, error)
+	listVMs      func(context.Context) ([]proxmox.VM, error)
+	doctor       func(context.Context) error
+	load         func(string) (config.Config, error)
+	save         func(string, config.Config) error
+	terminal     func(*cobra.Command) bool
+	password     func(*cobra.Command) ([]byte, error)
 }
-
-// Version identifies the build and is set by release builds using ldflags.
-var Version = "0.1.0-dev"
 
 // NewCommand constructs the CLI. Configuration is read only from the explicit
 // path, or /etc/pvedisk/config.yaml, and never from the working directory.
@@ -48,7 +48,8 @@ func NewCommand() *cobra.Command {
 		setupLock:   m.WithSetupLock,
 		mount:       m.Mount, unmount: m.Unmount, recover: m.Recover,
 		reset: m.ResetRoot, worker: m.Worker,
-		status: m.Status,
+		status:   m.Status,
+		describe: m.Describe, listSessions: m.List, listVMs: proxmox.New().List,
 		doctor: proxmox.New().Doctor,
 		load:   config.Load, save: config.Save,
 		terminal: isTerminal, password: readPassword,
@@ -59,7 +60,7 @@ func newCommand(ops operations) *cobra.Command {
 	var configPath string
 	root := &cobra.Command{
 		Use: "pvedisk", Short: "Mount and repair stopped Proxmox Linux guests",
-		Version:      Version,
+		Version:      buildinfo.Version,
 		SilenceUsage: true, SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := ops.load(configPath)
@@ -81,6 +82,7 @@ func newCommand(ops operations) *cobra.Command {
 		},
 		Args: cobra.NoArgs,
 	}
+	root.SetVersionTemplate("{{.Version}}\n")
 	defaultHelp := root.HelpFunc()
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		if !colorEnabled(cmd.OutOrStdout()) {
@@ -128,10 +130,11 @@ func newCommand(ops operations) *cobra.Command {
 		if _, err := requireConfig(cmd, ops, configPath); err != nil {
 			return err
 		}
+		started := time.Now()
 		if err := ops.mount(cmd.Context(), id, configPath, readOnly, func(phase string) {
 			if message := mountPhaseMessage(phase); message != "" {
 				p := outputPalette(cmd.OutOrStdout())
-				fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.label.Render(fmt.Sprintf("VM %d:", id)), p.muted.Render(message))
+				fmt.Fprintln(cmd.OutOrStdout(), mountProgress(p, id, phase, message, time.Since(started)))
 			}
 		}); err != nil {
 			return fmt.Errorf("mount VM %d: %w\nCheck your session with: pvedisk status %d", id, err, id)
@@ -149,7 +152,8 @@ func newCommand(ops operations) *cobra.Command {
 		if state.ReadOnly {
 			modeStyle = p.success
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s (%s).\n%s %s\n%s %s\n", p.success.Render(fmt.Sprintf("Your VM %d is mounted", id)), modeStyle.Render(mode), p.label.Render("Guest root:"), p.path.Render(state.Public), p.label.Render("Additional filesystems:"), p.path.Render(state.Extras))
+		result := fmt.Sprintf("%s (%s).\n%s %s\n%s %s", p.success.Render(fmt.Sprintf("Your VM %d is mounted", id)), modeStyle.Render(mode), p.label.Render("Guest root:"), p.path.Render(state.Public), p.label.Render("Additional filesystems:"), p.path.Render(state.Extras))
+		fmt.Fprintln(cmd.OutOrStdout(), p.panel(result, terminalWidth(cmd.OutOrStdout())))
 		if len(state.Inventory.Filesystems) > 0 {
 			var table bytes.Buffer
 			w := tabwriter.NewWriter(&table, 0, 4, 2, ' ', 0)
@@ -183,26 +187,44 @@ func newCommand(ops operations) *cobra.Command {
 			if !ops.terminal(cmd) {
 				return errors.New("provide your VM ID when running without a terminal: pvedisk mount 400")
 			}
-			fmt.Fprint(cmd.OutOrStdout(), outputPalette(cmd.OutOrStdout()).label.Render("VM ID:")+" ")
-			input, err := bufio.NewReader(io.LimitReader(cmd.InOrStdin(), 64)).ReadString('\n')
+			id, err := selectMountVM(cmd, ops)
 			if err != nil {
-				return fmt.Errorf("read your VM ID; mount cancelled: %w", err)
+				return err
 			}
-			args = []string{strings.TrimSpace(input)}
+			args = []string{strconv.Itoa(id)}
 		}
 		return runMount(cmd, args)
 	}
 	root.AddCommand(mount)
-	root.AddCommand(vmCommand("status", "Show your recorded repair session", func(cmd *cobra.Command, id int) error {
-		state, err := ops.status(id)
+	status := vmCommand("status", "Show your repair sessions and actual mount observations", func(cmd *cobra.Command, id int) error {
+		description, err := ops.describe(id)
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("your VM %d has no recorded pvedisk repair session. Mounts created by other tools are not tracked. To start a session, run: pvedisk mount %d", id, id)
 		}
 		if err != nil {
 			return fmt.Errorf("read your repair session for VM %d: %w", id, err)
 		}
-		return writeStatus(cmd.OutOrStdout(), state)
-	}))
+		return writeStatus(cmd.OutOrStdout(), description)
+	})
+	var statusJSON bool
+	status.Flags().BoolVar(&statusJSON, "json", false, "Print your session summary as JSON")
+	status.Use = "status [VMID]"
+	status.Args = cobra.MaximumNArgs(1)
+	runStatus := status.RunE
+	status.RunE = func(cmd *cobra.Command, args []string) error {
+		if len(args) > 0 {
+			return runStatus(cmd, args)
+		}
+		sessions, err := ops.listSessions()
+		if err != nil {
+			return fmt.Errorf("list your repair sessions: %w", err)
+		}
+		if statusJSON {
+			return writeStatus(cmd.OutOrStdout(), sessions)
+		}
+		return printSessions(cmd.OutOrStdout(), sessions)
+	}
+	root.AddCommand(status)
 	for _, action := range []struct {
 		name, description string
 		run               func(context.Context, int) error
@@ -210,14 +232,33 @@ func newCommand(ops operations) *cobra.Command {
 		{"unmount", "Safely finalize and unmount your guest", ops.unmount},
 		{"recover", "Reconcile an interrupted repair session", ops.recover},
 	} {
-		root.AddCommand(vmCommand(action.name, action.description, func(cmd *cobra.Command, id int) error {
+		command := vmCommand(action.name, action.description, func(cmd *cobra.Command, id int) error {
 			if err := action.run(cmd.Context(), id); err != nil {
 				return err
 			}
 			p := outputPalette(cmd.OutOrStdout())
 			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.success.Render("You can now run:"), p.path.Render(fmt.Sprintf("qm start %d", id)))
 			return nil
-		}))
+		})
+		if action.name == "unmount" {
+			command.Use = "unmount [VMID]"
+			command.Args = cobra.MaximumNArgs(1)
+			runUnmount := command.RunE
+			command.RunE = func(cmd *cobra.Command, args []string) error {
+				if len(args) == 0 {
+					if !ops.terminal(cmd) {
+						return errors.New("provide your VM ID when running without a terminal: pvedisk unmount 400")
+					}
+					id, err := selectUnmountVM(cmd, ops)
+					if err != nil {
+						return err
+					}
+					args = []string{strconv.Itoa(id)}
+				}
+				return runUnmount(cmd, args)
+			}
+		}
+		root.AddCommand(command)
 	}
 	root.AddCommand(vmCommand("reset-root", "Set your unmounted guest's root password", func(cmd *cobra.Command, id int) error {
 		if _, err := requireConfig(cmd, ops, configPath); err != nil {
@@ -239,6 +280,7 @@ func newCommand(ops operations) *cobra.Command {
 	worker.Hidden = true
 	root.AddCommand(worker)
 	root.AddCommand(utilsCommand())
+	root.AddCommand(versionCommand())
 	return root
 }
 

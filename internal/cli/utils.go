@@ -24,13 +24,8 @@ type utilityOperations struct {
 
 func utilsCommand() *cobra.Command {
 	return newUtilsCommand(utilityOperations{
-		prompt: func(cmd *cobra.Command, confirm bool) ([]byte, error) {
-			if confirm {
-				return readConfirmedPassword(cmd, "Your password: ")
-			}
-			return readSecret(cmd, "Your known password: ")
-		},
-		hash: password.Hash, verify: password.Verify,
+		prompt: readUtilityPassword,
+		hash:   password.Hash, verify: password.Verify,
 	})
 }
 

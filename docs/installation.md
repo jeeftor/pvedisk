@@ -90,8 +90,22 @@ On Debian 13, install a C compiler, `pkg-config`, `libguestfs-dev`, `libcrypt-de
 and the libguestfs/FUSE runtime. With Go 1.27.3 available:
 
 ```sh
-CGO_ENABLED=1 go build -trimpath -o pvedisk .
+CGO_ENABLED=1 sh scripts/build.sh bin/pvedisk
+bin/pvedisk version
 ```
+
+`make build` uses the same build script as GitHub and GitLab. `VERSION` supplies
+the semantic version base. Development binaries use `<base>-dev+<12-character
+commit>`; release-tag builds preserve the exact semantic version tag. Every
+script-built binary records its full commit, UTC build date, and build source
+(`local`, `github`, or `gitlab`). A local source directory without Git metadata
+uses `<base>-dev+unknown`. Direct `go run .` builds intentionally report `dev`
+with unknown commit and build date.
+
+Use `pvedisk version` for readable build details, `pvedisk version --short` or
+`pvedisk --version` for just the version, and `pvedisk version --json` for
+machine-readable metadata. Run `sh scripts/test-build.sh` to verify consistent
+metadata selection without compiling native dependencies.
 
 `libguestfs.org/guestfs` resolves to the pinned upstream-generated bindings in
 `third_party/guestfs`. Native libraries remain dynamically linked host

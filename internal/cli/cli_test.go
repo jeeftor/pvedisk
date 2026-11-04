@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jeeftor/pvedisk/internal/appliance"
 	"github.com/jeeftor/pvedisk/internal/config"
+	"github.com/jeeftor/pvedisk/internal/proxmox"
 	"github.com/jeeftor/pvedisk/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -23,6 +24,10 @@ func testOperations() operations {
 		setupLock:   func(fn func() error) error { return fn() },
 		hasSessions: func() (bool, error) { return false, nil },
 		terminal:    func(*cobra.Command) bool { return false },
+		listVMs: func(context.Context) ([]proxmox.VM, error) {
+			return []proxmox.VM{{ID: 400, Name: "test-vm", Status: "stopped"}}, nil
+		},
+		listSessions: func() ([]session.Description, error) { return []session.Description{}, nil },
 	}
 }
 
@@ -174,7 +179,7 @@ func TestUnmountAndRecoveryIgnoreDamagedConfiguration(t *testing.T) {
 
 func TestStatusExplainsMissingSession(t *testing.T) {
 	ops := testOperations()
-	ops.status = func(int) (*session.State, error) {
+	ops.describe = func(int) (*session.Description, error) {
 		return nil, &os.PathError{Op: "lstat", Path: "/var/lib/pvedisk/400.json", Err: os.ErrNotExist}
 	}
 	_, err := execute(ops, "status", "400")
@@ -186,7 +191,7 @@ func TestStatusExplainsMissingSession(t *testing.T) {
 func TestStatusPreservesStateErrors(t *testing.T) {
 	for _, stateErr := range []error{os.ErrPermission, errors.New("invalid session ownership state")} {
 		ops := testOperations()
-		ops.status = func(int) (*session.State, error) { return nil, stateErr }
+		ops.describe = func(int) (*session.Description, error) { return nil, stateErr }
 		_, err := execute(ops, "status", "400")
 		if !errors.Is(err, stateErr) || strings.Contains(err.Error(), "no recorded") {
 			t.Fatalf("lost actual state error: %v", err)

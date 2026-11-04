@@ -14,8 +14,42 @@ use PVE::Tools;
 
 die "root required\n" if $> != 0;
 my ($operation, $vmid, $token) = @ARGV;
-die "invalid operation\n" if !defined($operation) || $operation !~ /\A(?:inspect|acquire|release|doctor)\z/;
+die "invalid operation\n" if !defined($operation) || $operation !~ /\A(?:inspect|acquire|release|doctor|list)\z/;
 if ($operation eq 'doctor') { print "[]\n"; exit 0; }
+if ($operation eq 'list') {
+    # config_list restricts the cluster inventory to local QEMU VMs. Full status
+    # asks QMP whether a running process is actually paused or suspended.
+    my $local = PVE::QemuServer::config_list();
+    my $statuses = PVE::QemuServer::vmstatus(undef, 1);
+    die "unsupported local VM inventory\n" if ref($local) ne 'HASH' || ref($statuses) ne 'HASH';
+    my @vms;
+    for my $id (sort { $a <=> $b } keys %$local) {
+        die "invalid local VM ID\n" if $id !~ /\A[1-9][0-9]{2,8}\z/;
+        my $status = $statuses->{$id};
+        die "cannot determine status of VM $id\n" if ref($status) ne 'HASH' || ($status->{status} // '') !~ /\A(?:running|stopped)\z/;
+        my $conf = PVE::QemuConfig->load_config($id);
+        my @reasons;
+        push @reasons, "Proxmox lock: $conf->{lock}" if $conf->{lock};
+        push @reasons, 'template' if $conf->{template};
+        push @reasons, 'suspended state' if $conf->{vmstate};
+        push @reasons, 'pending configuration changes' if keys %{$conf->{pending} // {}};
+        push @reasons, 'HA-managed' if PVE::HA::Config::vm_is_ha_managed($id);
+        my $state = $status->{status};
+        my $qmp = $status->{qmpstatus} // '';
+        if ($state eq 'running') {
+            if ($qmp eq '') { push @reasons, 'monitor status unavailable'; }
+            elsif ($qmp ne 'running') { $state = $qmp; push @reasons, "VM is $qmp"; }
+        }
+        push @vms, {
+            id => int($id),
+            name => $conf->{name} // $status->{name} // "VM $id",
+            status => $state,
+            unavailable_reason => join('; ', @reasons),
+        };
+    }
+    print JSON::PP->new->canonical->encode(\@vms), "\n";
+    exit 0;
+}
 die "invalid VM ID\n" if !defined($vmid) || $vmid !~ /\A[1-9][0-9]{2,8}\z/;
 die "invalid token\n" if $operation ne 'inspect' && (!defined($token) || $token !~ /\A[A-Za-z0-9-]{16,128}\z/);
 my $json = JSON::PP->new->canonical;
