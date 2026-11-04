@@ -334,11 +334,7 @@ func assertDisksUnused(disks []proxmox.Disk) error {
 					return err
 				}
 				if sameDisk(fi, di) {
-					process := entry.Name()
-					if name, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "comm")); err == nil {
-						process += " (" + strconv.Quote(strings.TrimSpace(string(name))) + ")"
-					}
-					return fmt.Errorf("your disk %s is open in process %s; protection is retained", disk.Path, process)
+					return diskUserError(disk.Path, "/proc", entry.Name(), fd.Name())
 				}
 			}
 		}
@@ -396,7 +392,7 @@ func checkMountInfo(s *State, path, data string) error {
 			continue
 		}
 		if target != path {
-			return fmt.Errorf("unrecorded nested mount %s prevents cleanup", target)
+			return fmt.Errorf("unrecorded nested mount %s prevents cleanup; inspect with: findmnt --mountpoint %s", target, quoteDiagnosticArgument(target))
 		}
 		sep := strings.Index(line, " - ")
 		if sep < 0 {
@@ -407,7 +403,7 @@ func checkMountInfo(s *State, path, data string) error {
 			return errors.New("invalid mount filesystem information")
 		}
 		if !strings.HasPrefix(tail[0], "fuse") || decodeMount(tail[1]) != "pvedisk-"+s.Token {
-			return fmt.Errorf("mount at %s is not a recognizable libguestfs session; protection retained", path)
+			return fmt.Errorf("mount at %s is not a recognizable libguestfs session; protection retained. Inspect its ownership with: findmnt --mountpoint %s", path, quoteDiagnosticArgument(path))
 		}
 	}
 	return nil

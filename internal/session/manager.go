@@ -154,12 +154,15 @@ func (m *Manager) Unmount(ctx context.Context, id int) error {
 		return err
 	}
 	if !live {
-		return errors.New("your worker is not alive; use recover")
+		return fmt.Errorf("your recorded repair worker for VM %d is not running (recorded PID %d); run: pvedisk recover %d", id, s.Worker.PID, id)
 	}
 	d := net.Dialer{}
 	conn, err := d.DialContext(ctx, "unix", m.socketPath(id))
 	if err != nil {
-		return fmt.Errorf("contact repair worker: %w", err)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("cannot contact your repair worker for VM %d (PID %d) at %s: %w; inspect pvedisk status %d and the private worker log %s before retrying pvedisk unmount %d", id, s.Worker.PID, m.socketPath(id), err, id, filepath.Join(m.root, strconv.Itoa(id)+".log"), id)
 	}
 	defer conn.Close()
 	if deadline, ok := ctx.Deadline(); ok {
@@ -171,16 +174,16 @@ func (m *Manager) Unmount(ctx context.Context, id int) error {
 		return err
 	}
 	if _, err = fmt.Fprintln(conn, s.Token); err != nil {
-		return err
+		return fmt.Errorf("cannot confirm your cleanup request for VM %d reached its worker: %w; inspect pvedisk status %d before retrying", id, err, id)
 	}
 	buf := make([]byte, 8192)
 	n, err := conn.Read(buf)
 	if err != nil {
-		return err
+		return fmt.Errorf("your worker response for VM %d ended before cleanup was confirmed: %w; inspect pvedisk status %d before retrying unmount, or use pvedisk recover %d if the worker has exited", id, err, id, id)
 	}
 	response := strings.TrimSpace(string(buf[:n]))
 	if response != "ok" {
-		return errors.New(response)
+		return fmt.Errorf("%s\nAfter resolving the blocker, retry: pvedisk unmount %d", response, id)
 	}
 	return nil
 }
@@ -201,7 +204,7 @@ func (m *Manager) Recover(ctx context.Context, id int) error {
 	if live {
 		return m.Unmount(ctx, id)
 	}
-	return m.lockedContext(ctx, func() error {
+	err = m.lockedContext(ctx, func() error {
 		s, err := m.Status(id)
 		if err != nil {
 			return err
@@ -210,13 +213,13 @@ func (m *Manager) Recover(ctx context.Context, id int) error {
 			if err != nil {
 				return err
 			}
-			return errors.New("your worker is active; use unmount")
+			return fmt.Errorf("your repair worker for VM %d is active (PID %d); run: pvedisk unmount %d", id, s.Worker.PID, id)
 		}
 		if live, err := alive(s.Appliance); err != nil || live {
 			if err != nil {
 				return err
 			}
-			return errors.New("your appliance is still alive; protection is retained")
+			return fmt.Errorf("your recorded libguestfs appliance for VM %d is still running in process %s; protection is retained. Inspect with: ps -p %d -o pid=,comm=", id, processDescription("/proc", strconv.Itoa(s.Appliance.PID)), s.Appliance.PID)
 		}
 		if err := recoverMounts(s); err != nil {
 			return err
@@ -236,6 +239,10 @@ func (m *Manager) Recover(ctx context.Context, id int) error {
 			return proxmox.New().Release(ctx, id, s.Token)
 		})
 	})
+	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("cannot recover your recorded session for VM %d: %w\nInspect the saved session with: pvedisk status %d\nAfter resolving the blocker, retry: pvedisk recover %d", id, err, id, id)
+	}
+	return err
 }
 
 // ResetRoot changes the root password while holding the same startup protection.
@@ -244,99 +251,8 @@ func (m *Manager) ResetRoot(ctx context.Context, id int, configPath string, pass
 	if len(password) == 0 || strings.ContainsAny(string(password), "\x00\r\n") {
 		return errors.New("your password must be nonempty and contain no newline or zero byte")
 	}
-	return m.locked(func() error {
-		if _, err := config.Load(configPath); err != nil {
-			return err
-		}
-		if runtime.GOOS != "linux" {
-			return errors.New("password repair requires a Proxmox Linux host")
-		}
-		if err := validID(id); err != nil {
-			return err
-		}
-		if _, err := os.Lstat(m.statePath(id)); !errors.Is(err, os.ErrNotExist) {
-			return errors.New("unmount or recover your existing repair session first")
-		}
-		token := make([]byte, 32)
-		if _, err := rand.Read(token); err != nil {
-			return err
-		}
-		s := &State{VMID: id, Token: hex.EncodeToString(token), Phase: "password-pending"}
-		s.Worker, _ = identity(os.Getpid())
-		if err := m.save(s); err != nil {
-			return err
-		}
-		p := proxmox.New()
-		disks, err := p.Inspect(ctx, id)
-		if err != nil {
-			return m.fail(s, err)
-		}
-		s.Disks = disks
-		s.DiskIdentities, err = captureDiskIdentities(disks)
-		if err != nil {
-			return m.fail(s, err)
-		}
-		if err = m.save(s); err != nil {
-			return err
-		}
-		if err = p.Shutdown(ctx, id); err != nil {
-			return m.fail(s, err)
-		}
-		s.Phase = "acquiring"
-		s.ProtectionAttempted = true
-		if err = m.save(s); err != nil {
-			return err
-		}
-		disks, err = p.Acquire(ctx, id, s.Token)
-		if err != nil {
-			return m.fail(s, err)
-		}
-		s.Disks = disks
-		s.DiskIdentities, err = captureDiskIdentities(disks)
-		if err != nil {
-			return m.fail(s, err)
-		}
-		s.Phase = "password"
-		if err = m.save(s); err != nil {
-			return err
-		}
-		if err = assertDisksUnused(disks); err != nil {
-			return m.fail(s, err)
-		}
-		s.PasswordFile = filepath.Join(m.root, ".password-"+s.Token)
-		if err = m.save(s); err != nil {
-			return err
-		}
-		f, err := os.OpenFile(s.PasswordFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-		if err != nil {
-			return m.fail(s, err)
-		}
-		name := f.Name()
-		defer scrubPassword(name, m.root)
-		if _, err = f.Write(password); err != nil {
-			f.Close()
-			return m.fail(s, err)
-		}
-		if err = f.Close(); err != nil {
-			return m.fail(s, err)
-		}
-		args := []string{}
-		for _, disk := range disks {
-			args = append(args, "--format", disk.Format, "-a", disk.Path)
-		}
-		args = append(args, "--root-password", "file:"+name)
-		cmd := exec.CommandContext(ctx, "virt-customize", args...)
-		cmd.Env = append(os.Environ(), "LIBGUESTFS_BACKEND=direct")
-		if err = cmd.Run(); err != nil {
-			return m.fail(s, fmt.Errorf("password repair failed; inspect and recover your session: %w", err))
-		}
-		if err = assertDisksUnused(disks); err != nil {
-			return m.fail(s, err)
-		}
-		if err = scrubPassword(name, m.root); err != nil {
-			return m.fail(s, err)
-		}
-		return m.finish(s, func() error { return p.Release(ctx, id, s.Token) })
+	return m.offlineMaintenance(ctx, id, configPath, "password", func(s *State) error {
+		return m.resetRootOffline(ctx, s, password)
 	})
 }
 

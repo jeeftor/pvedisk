@@ -10,12 +10,16 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"libguestfs.org/guestfs"
 )
 
 // TestDiskImage verifies real inspection, FUSE writes, write persistence and
 // kernel read-only enforcement against a disposable disk, without Proxmox.
 func TestDiskImage(t *testing.T) {
+	const selinuxConfig = "SELINUX=enforcing\nSELINUXTYPE=targeted\n"
+	const selinuxContext = "system_u:object_r:etc_t:s0\x00"
+	const shadow = "root:!:20000:0:99999:7:::\n"
 	dir := t.TempDir()
 	image := filepath.Join(dir, "guest.raw")
 	extra := filepath.Join(dir, "extra.raw")
@@ -47,6 +51,12 @@ func TestDiskImage(t *testing.T) {
 		func() error { return g.Mkfs("ext4", "/dev/sdb", nil) },
 		func() error { return g.Mount("/dev/sda1", "/") },
 		func() error { return g.Mkdir("/etc") },
+		func() error { return g.Mkdir("/etc/selinux") },
+		func() error { return g.Write("/etc/selinux/config", []byte(selinuxConfig)) },
+		func() error { return g.Write("/etc/shadow", []byte(shadow)) },
+		func() error {
+			return g.Lsetxattr("security.selinux", selinuxContext, len(selinuxContext), "/etc/selinux/config")
+		},
 		func() error { return g.Mkdir("/bin") },
 		func() error { return g.Write("/etc/fstab", []byte("/dev/sda1 / ext4 defaults 0 1\n")) },
 		func() error {
@@ -61,6 +71,16 @@ func TestDiskImage(t *testing.T) {
 			t.Fatalf("seed step %d: %v", i, err)
 		}
 	}
+	config, err := SELinuxConfig([]Disk{{Path: image, Format: "raw"}, {Path: extra, Format: "raw"}})
+	if err != nil || string(config) != selinuxConfig {
+		t.Fatalf("read-only SELinux configuration probe: data=%q error=%v", config, err)
+	}
+	customize := exec.Command("virt-customize", "--format", "raw", "-a", image, "--format", "raw", "-a", extra,
+		"--no-network", "--no-selinux-relabel", "--touch", "/.autorelabel")
+	customize.Env = append(os.Environ(), "LIBGUESTFS_BACKEND=direct")
+	if output, err := customize.CombinedOutput(); err != nil {
+		t.Fatalf("schedule SELinux relabel using native virt-customize: %v: %s", err, output)
+	}
 	for _, readonly := range []bool{false, true} {
 		h, err := Open([]Disk{{Path: image, Format: "raw"}, {Path: extra, Format: "raw"}}, readonly)
 		if err != nil {
@@ -73,6 +93,17 @@ func TestDiskImage(t *testing.T) {
 		}
 		if inventory.Root == "" {
 			t.Fatal("no root detected")
+		}
+		if !readonly {
+			native := h.g.(*guestfs.Guestfs)
+			marker, err := native.Lstatns("/root/.autorelabel")
+			if err != nil || marker.St_mode&0170000 != 0100000 {
+				t.Fatalf("virt-customize did not persist a regular /.autorelabel marker: %v", err)
+			}
+			passwordFile, err := native.Read_file("/root/etc/shadow")
+			if err != nil || string(passwordFile) != shadow {
+				t.Fatalf("SELinux scheduling changed the shadow file or made it unreadable: %v", err)
+			}
 		}
 		extraID := ""
 		for _, fs := range inventory.Filesystems {
@@ -126,6 +157,16 @@ func TestDiskImage(t *testing.T) {
 			}
 			if !strings.Contains(string(mountinfo), " - fuse.guestfs pvedisk-integration-session ") {
 				t.Fatal("FUSE mount does not carry the expected recovery ownership label")
+			}
+			file, err := os.Open(filepath.Join(staging, "root", "etc", "selinux", "config"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			contextBuffer := make([]byte, 4096)
+			n, contextErr := unix.Fgetxattr(int(file.Fd()), "security.selinux", contextBuffer)
+			file.Close()
+			if contextErr != nil || string(contextBuffer[:n]) != selinuxContext {
+				t.Fatalf("SELinux context through native FUSE: context=%q error=%v", contextBuffer[:max(n, 0)], contextErr)
 			}
 			for _, target := range []string{filepath.Join(staging, "root", "persisted"), filepath.Join(staging, "extras", extraID, "persisted")} {
 				if readonly {

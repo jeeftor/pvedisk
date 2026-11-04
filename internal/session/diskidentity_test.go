@@ -94,9 +94,20 @@ func TestDiskIdentityDescriptorScanChecksAliases(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(proc, "123", "comm"), []byte("qemu\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(proc, "123", "cmdline"), []byte("qemu\x00--password\x00do-not-print-this\x00"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	err = assertDiskIdentitiesUnusedAt(identities, proc)
 	if err == nil || !strings.Contains(err.Error(), "123 (\"qemu\")") {
 		t.Fatalf("open alias not identified: %v", err)
+	}
+	for _, want := range []string{alias, filepath.Join(fds, "7"), "readlink --", "Close this disk"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("missing blocker/action %q: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "do-not-print-this") {
+		t.Fatal("process arguments exposed")
 	}
 	if err := os.Remove(filepath.Join(fds, "7")); err != nil {
 		t.Fatal(err)

@@ -95,10 +95,11 @@ jobs:
           cp third_party/guestfs/COPYING.LIB dist/COPYING.LIB
           cp deploy/pvedisk-mcp.service dist/pvedisk-mcp.service
           cp docs/recovery.md dist/recovery.md
+          cp docs/selinux.md dist/selinux.md
           cp docs/mcp-shared-package.md dist/mcp-shared-package.md
           sed 's|../deploy/pvedisk-mcp.service|pvedisk-mcp.service|g' docs/mcp.md > dist/MCP.md
           cd dist
-          sha256sum pvedisk install.sh LICENSE COPYING.LIB pvedisk-mcp.service recovery.md MCP.md mcp-shared-package.md > SHA256SUMS
+          sha256sum pvedisk install.sh LICENSE COPYING.LIB pvedisk-mcp.service recovery.md selinux.md MCP.md mcp-shared-package.md > SHA256SUMS
           sha256sum --check SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:

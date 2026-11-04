@@ -104,7 +104,7 @@ func assertRecoveryDisksUnusedAt(s *State, sysRoot, procRoot string) error {
 		}
 		if recorded, ok := identities[disk.Path]; ok && (recorded.Device != current.Device || recorded.Inode != current.Inode || recorded.BlockDevice != current.BlockDevice || recorded.Kind != current.Kind) {
 			if err := requireOriginalDiskBoot(disk.Path, recorded); err != nil {
-				return err
+				return fmt.Errorf("your disk path now identifies a replacement disk: %w", err)
 			}
 			// Keep the original saved identity authoritative when a rebuilt VM
 			// reuses its pathname, and check replacement users before unlocking.
@@ -137,8 +137,11 @@ func requireOriginalDiskBoot(path string, identity DiskIdentity) error {
 	if err != nil {
 		return err
 	}
-	if identity.Boot == "" || identity.Boot != boot {
-		return fmt.Errorf("cannot verify your original disk %s after its path disappeared or changed across a host reboot or without its recorded boot identity; restore access to the original disk or storage before recovery; protection is retained", path)
+	if identity.Boot == "" {
+		return fmt.Errorf("cannot verify your original disk %s: its saved identity has no host boot identifier, so same-boot ownership cannot be proven; restore access to the original disk or storage before recovery; protection is retained", path)
+	}
+	if identity.Boot != boot {
+		return fmt.Errorf("cannot verify your original disk %s: its saved identity predates the current host boot, and device or inode numbers may have changed after a host reboot; restore access to the original disk or storage before recovery; protection is retained", path)
 	}
 	return nil
 }
@@ -184,11 +187,7 @@ func assertDiskIdentitiesUnusedAt(identities map[string]DiskIdentity, procRoot s
 			}
 			for path, identity := range identities {
 				if matchesDiskIdentity(info, identity) {
-					process := entry.Name()
-					if name, err := os.ReadFile(filepath.Join(procRoot, entry.Name(), "comm")); err == nil {
-						process += " (" + strconv.Quote(strings.TrimSpace(string(name))) + ")"
-					}
-					return fmt.Errorf("your disk %s is open in process %s; protection is retained", path, process)
+					return diskUserError(path, procRoot, entry.Name(), fd.Name())
 				}
 			}
 		}

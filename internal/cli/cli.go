@@ -21,23 +21,24 @@ import (
 )
 
 type operations struct {
-	hasSessions  func() (bool, error)
-	setupLock    func(func() error) error
-	mount        func(context.Context, int, string, bool, func(string)) error
-	unmount      func(context.Context, int) error
-	recover      func(context.Context, int) error
-	reset        func(context.Context, int, string, []byte) error
-	worker       func(context.Context, int) error
-	status       func(int) (*session.State, error)
-	describe     func(int) (*session.Description, error)
-	listSessions func() ([]session.Description, error)
-	listVMs      func(context.Context) ([]proxmox.VM, error)
-	doctor       func(context.Context) error
-	load         func(string) (config.Config, error)
-	save         func(string, config.Config) error
-	terminal     func(*cobra.Command) bool
-	password     func(*cobra.Command) ([]byte, error)
-	mcp          func(context.Context, string, mcpserver.HTTPOptions, io.Writer) error
+	hasSessions            func() (bool, error)
+	setupLock              func(func() error) error
+	mount                  func(context.Context, int, string, bool, func(string)) error
+	unmount                func(context.Context, int) error
+	recover                func(context.Context, int) error
+	reset                  func(context.Context, int, string, []byte) error
+	scheduleSELinuxRelabel func(context.Context, int, string) error
+	worker                 func(context.Context, int) error
+	status                 func(int) (*session.State, error)
+	describe               func(int) (*session.Description, error)
+	listSessions           func() ([]session.Description, error)
+	listVMs                func(context.Context) ([]proxmox.VM, error)
+	doctor                 func(context.Context) error
+	load                   func(string) (config.Config, error)
+	save                   func(string, config.Config) error
+	terminal               func(*cobra.Command) bool
+	password               func(*cobra.Command) ([]byte, error)
+	mcp                    func(context.Context, string, mcpserver.HTTPOptions, io.Writer) error
 }
 
 // NewCommand constructs the CLI. Configuration is read only from the explicit
@@ -49,8 +50,9 @@ func NewCommand() *cobra.Command {
 		setupLock:   m.WithSetupLock,
 		mount:       m.Mount, unmount: m.Unmount, recover: m.Recover,
 		reset: m.ResetRoot, worker: m.Worker,
-		status:   m.Status,
-		describe: m.Describe, listSessions: m.List, listVMs: proxmox.New().List,
+		scheduleSELinuxRelabel: m.ScheduleSELinuxRelabel,
+		status:                 m.Status,
+		describe:               m.Describe, listSessions: m.List, listVMs: proxmox.New().List,
 		doctor: proxmox.New().Doctor,
 		load:   config.Load, save: config.Save,
 		terminal: isTerminal, password: readPassword,
@@ -265,6 +267,21 @@ func newCommand(ops operations) *cobra.Command {
 	})
 	resetRoot.Long = "Set the root password of a supported Linux guest through virt-customize; this helper is not limited to RHEL 10. You need valid configuration and unmounted guest disks. Enter your new password twice at a terminal. Your guest is never restarted automatically."
 	utilities.AddCommand(resetRoot)
+	selinuxRelabel := vmCommand("selinux-relabel", "Schedule your guest SELinux relabel on its next boot", func(cmd *cobra.Command, id int) error {
+		if _, err := requireConfig(cmd, ops, configPath); err != nil {
+			return err
+		}
+		if err := ops.scheduleSELinuxRelabel(cmd.Context(), id, configPath); err != nil {
+			return err
+		}
+		p := outputPalette(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), p.success.Render("Your guest SELinux relabel is scheduled for its next boot."))
+		fmt.Fprintln(cmd.OutOrStdout(), "The relabel may take time during that boot. Your guest has not been started.")
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.success.Render("You can now run:"), p.path.Render(fmt.Sprintf("qm start %d", id)))
+		return nil
+	})
+	selinuxRelabel.Long = "Schedule an SELinux filesystem relabel for your guest's next boot by creating /.autorelabel through protected offline maintenance. Your guest must already have SELinux configured as enforcing or permissive. Valid site configuration and unmounted disks are required. A running guest receives graceful shutdown and remains stopped. This helper does not perform the relabel immediately, enable SELinux, or restart your guest."
+	utilities.AddCommand(selinuxRelabel)
 	worker := vmCommand("_worker", "Internal detached session worker", func(cmd *cobra.Command, id int) error { return ops.worker(cmd.Context(), id) })
 	worker.Hidden = true
 	root.AddCommand(worker)

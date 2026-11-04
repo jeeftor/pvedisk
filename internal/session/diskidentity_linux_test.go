@@ -171,7 +171,11 @@ func TestReusedPathRequiresOriginalBootIdentity(t *testing.T) {
 			identity := s.DiskIdentities[path]
 			identity.Boot = boot
 			s.DiskIdentities[path] = identity
-			if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "host reboot") {
+			reason := "no host boot identifier"
+			if boot != "" {
+				reason = "predates the current host boot"
+			}
+			if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), reason) || !strings.Contains(err.Error(), "replacement disk") || !strings.Contains(err.Error(), path) {
 				t.Fatalf("uncertain original identity accepted: %v", err)
 			}
 		})

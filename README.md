@@ -59,8 +59,9 @@ Cancelling setup leaves your configuration and virtual machines untouched.
 
 The first bare `pvedisk` invocation opens setup only when you have a terminal.
 After configuration, the bare command displays help and your destination. In a
-script, run the explicit noninteractive setup command instead. Mounting and
-`utils reset-root` require valid configuration and never run setup for you.
+script, run the explicit noninteractive setup command instead. Mounting,
+`utils reset-root`, and `utils selinux-relabel` require valid configuration and
+never run setup for you.
 
 ## Repair a guest
 
@@ -179,6 +180,20 @@ on standard output. It does not install that hash or reset a guest password.
 without `mkpasswd` or Python's
 `crypt` module. They do not require site configuration or perform VM operations;
 you must already have access to the shadow file you select.
+
+## Optional SELinux helpers
+
+```console
+pvedisk utils selinux-context --path /your/repair-directory/vm400/etc/shadow
+pvedisk utils selinux-relabel 400
+```
+
+The context helper reads an existing file label; a label alone does not tell you
+whether your guest enforces SELinux. The relabel helper uses protected offline
+maintenance to schedule `/.autorelabel` for the next guest boot. It requires
+unmounted disks and SELinux already configured as enforcing or permissive; it
+does not enable SELinux, relabel immediately, or start the guest. That next boot's
+relabel may take time. See [SELinux inspection and scheduling](docs/selinux.md).
 
 ## HTTP MCP access
 

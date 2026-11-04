@@ -23,10 +23,12 @@ type utilityOperations struct {
 }
 
 func utilsCommand() *cobra.Command {
-	return newUtilsCommand(utilityOperations{
+	command := newUtilsCommand(utilityOperations{
 		prompt: readUtilityPassword,
 		hash:   password.Hash, verify: password.Verify,
 	})
+	command.AddCommand(selinuxContextCommand(readSELinuxContext))
+	return command
 }
 
 func newUtilsCommand(ops utilityOperations) *cobra.Command {

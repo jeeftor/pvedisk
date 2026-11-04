@@ -2,6 +2,7 @@ package session
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -24,7 +25,7 @@ printf '%s\n' '/repair/vm400:       root       1234 ..c.. bash' >&2
 `)
 	t.Setenv("PATH", dir)
 	output := busyMountDiagnostic("/repair/vm400")
-	for _, want := range []string{"USER", "PID", "COMMAND", "1234", "bash"} {
+	for _, want := range []string{"USER", "PID", "COMMAND", "1234", "bash", "c=current directory", "cd /", "close files"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("missing %q: %s", want, output)
 		}
@@ -34,8 +35,17 @@ printf '%s\n' '/repair/vm400:       root       1234 ..c.. bash' >&2
 func TestBusyMountDiagnosticMissingFuser(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	output := busyMountDiagnostic("/repair/it's here")
-	if !strings.Contains(output, "install psmisc") || !strings.Contains(output, "fuser -vm -- '/repair/it'\\''s here'") {
+	if !strings.Contains(output, "install psmisc") || !strings.Contains(output, "fuser -vm -- "+quoteDiagnosticArgument("/repair/it's here")) {
 		t.Fatalf("missing useful safely quoted fallback: %s", output)
+	}
+}
+
+func TestDiagnosticCommandPreservesLiteralPath(t *testing.T) {
+	path := "/repair/it's here; $HOME"
+	cmd := exec.Command("/bin/sh", "-c", "set -- "+quoteDiagnosticArgument(path)+"; printf '%s' \"$1\"")
+	output, err := cmd.Output()
+	if err != nil || string(output) != path {
+		t.Fatalf("diagnostic command changed your path: output=%q error=%v", output, err)
 	}
 }
 

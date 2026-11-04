@@ -32,6 +32,38 @@ After host reboot, verify that the appliance and its disk access are gone and ru
 recovery against the preserved state. A missing configuration file is not a reason
 to recreate the mount root or discard session records.
 
+## Busy mounts and disk users
+
+A failed unmount reports the exact mount path, the `umount` error, and a bounded
+`fuser` listing of process identifiers, command names, and access types. In its
+ACCESS column, `c` means the process has its current directory inside the mount;
+`r` means a root directory, `f`/`F` an open file, `e` an executable, and `m` a
+mapped file. Run `cd /` in the affected shell, or close the files through the
+identified application, before retrying the printed cleanup command. Changing
+directories in a different shell does not release the affected process.
+
+If a disk remains open after the public views are gone, the error identifies its
+process identifier and command name, the open `/proc/PID/fd/FD` descriptor, and
+its target when available. Use the printed `readlink` command to inspect the
+descriptor. A target ending in `(deleted)` is still open despite its pathname
+being gone. A disk labeled `(replacement)` belongs to the current disk at a
+pathname reused by a rebuilt VM; recovery checks both the recorded original disk
+and its replacement. Close the identified application's disk access, or wait
+for a short-lived tool to finish, then retry cleanup. Process arguments are not
+printed.
+
+Public mounts can be gone while an unresolved session still retains startup
+protection. Directory removal and protection release happen only after all
+cleanup checks pass. `pvedisk status VMID` shows the saved session separately
+from actual mounts and worker health.
+
+When the recorded worker has exited, `unmount` prints the exact `recover`
+command. If a live worker cannot be contacted, inspect the reported socket,
+private worker log, and session status. A lost worker response means cleanup was
+not confirmed; check status before retrying. Recovery also reports a still-live
+recorded appliance by process identifier and prints a `ps` command that displays
+its command name. Protection stays in place while that appliance remains live.
+
 ## Deleted VMs and disks
 
 Deleting a VM does not erase its repair-session record. Run `pvedisk recover VMID`
@@ -63,6 +95,9 @@ retrying. The same restriction applies to missing paths after a host reboot or
 when the saved boot identity is unavailable: device numbers may have changed.
 Reused disk paths require the same boot-bound original identity; uncertainty
 about the original disk retains protection even if the replacement is idle.
+The error distinguishes a saved identity with no boot identifier from one
+recorded before the current host boot. A replacement-path error refers to the
+old session's ownership proof; rebuilding the VM does not refresh that proof.
 Do not create an empty placeholder image or substitute another volume to pass
 this check. These identities are kernel device and inode identities, not
 permanent storage identifiers; if storage was remounted or devices were
