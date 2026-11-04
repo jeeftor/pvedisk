@@ -154,7 +154,7 @@ func (m *Manager) Worker(ctx context.Context, id int) error {
 			conn.Close()
 			continue
 		}
-		err = m.locked(func() error { return m.finalize(ctx, s, h, runDone) })
+		err = m.locked(func() error { return m.finalize(ctx, s, h, runDone, unmountOwned) })
 		if err != nil {
 			fmt.Fprintln(conn, err.Error())
 			conn.Close()
@@ -192,23 +192,17 @@ func unmount(path string) error {
 	return nil
 }
 
-func (m *Manager) finalize(ctx context.Context, s *State, h *appliance.Handle, runDone <-chan error) error {
+func (m *Manager) finalize(ctx context.Context, s *State, h interface{ Close() error }, runDone <-chan error, unmountView func(*State, string) error) error {
 	s.Phase = "finalizing"
 	if err := m.save(s); err != nil {
 		return err
 	}
 	for _, path := range []string{s.Extras, s.Public} {
-		if err := checkMountOwnership(s, path); err != nil {
-			return m.fail(s, err)
-		}
-		if err := unmount(path); err != nil {
+		if err := unmountView(s, path); err != nil {
 			return m.fail(s, err)
 		}
 	}
-	if err := checkMountOwnership(s, s.Staging); err != nil {
-		return m.fail(s, err)
-	}
-	if err := unmount(s.Staging); err != nil {
+	if err := unmountView(s, s.Staging); err != nil {
 		return m.fail(s, err)
 	}
 	if !s.FuseStopped {
@@ -300,6 +294,9 @@ func assertDisksUnused(disks []proxmox.Disk) error {
 	if len(disks) == 0 {
 		return nil
 	}
+	if err := kernelDisksUnused(disks); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return err
@@ -352,14 +349,18 @@ func recoverMounts(s *State) error {
 		if path == "" {
 			continue
 		}
-		if err := checkMountOwnership(s, path); err != nil {
-			return err
-		}
-		if err := unmount(path); err != nil {
+		if err := unmountOwned(s, path); err != nil {
 			return err
 		}
 	}
 	return assertNoMounts(s)
+}
+
+func unmountOwned(s *State, path string) error {
+	if err := checkMountOwnership(s, path); err != nil {
+		return err
+	}
+	return unmount(path)
 }
 
 func checkMountOwnership(s *State, path string) error {
@@ -367,17 +368,24 @@ func checkMountOwnership(s *State, path string) error {
 	if err != nil {
 		return err
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	return checkMountInfo(s, path, string(data))
+}
+
+func checkMountInfo(s *State, path, data string) error {
+	for _, line := range strings.Split(data, "\n") {
+		if line == "" {
+			continue
+		}
 		fields := strings.Fields(line)
 		if len(fields) < 6 {
-			continue
+			return errors.New("invalid mount information")
 		}
 		target := decodeMount(fields[4])
 		if target != path && !strings.HasPrefix(target, path+"/") {
 			continue
 		}
 		if target != path {
-			return fmt.Errorf("unrecorded nested mount %s prevents recovery", target)
+			return fmt.Errorf("unrecorded nested mount %s prevents cleanup", target)
 		}
 		sep := strings.Index(line, " - ")
 		if sep < 0 {

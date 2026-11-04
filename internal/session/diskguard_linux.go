@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -31,20 +32,13 @@ func kernelDisksUnusedAt(disks []proxmox.Disk, sysRoot, procRoot string) error {
 	if err != nil {
 		return err
 	}
-	data, err := os.ReadFile(filepath.Join(procRoot, "self", "mountinfo"))
+	mounted, err := readKernelMounts(procRoot)
 	if err != nil {
-		return fmt.Errorf("inspect kernel mounts: %w", err)
+		return err
 	}
-	mounted := make(map[string]bool)
-	for _, line := range strings.Split(string(data), "\n") {
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 7 || !strings.Contains(line, " - ") {
-			return errors.New("cannot reconcile malformed kernel mount information")
-		}
-		mounted[fields[2]] = true
+	swaps, err := readKernelSwaps(procRoot, mounted)
+	if err != nil {
+		return err
 	}
 	for _, disk := range disks {
 		info, err := os.Stat(disk.Path)
@@ -52,6 +46,11 @@ func kernelDisksUnusedAt(disks []proxmox.Disk, sysRoot, procRoot string) error {
 			return fmt.Errorf("inspect your disk %s: %w", disk.Path, err)
 		}
 		if info.Mode().IsRegular() {
+			for _, swap := range swaps {
+				if os.SameFile(info, swap) {
+					return fmt.Errorf("your disk %s is active swap; protection is retained", disk.Path)
+				}
+			}
 			for _, block := range blocks {
 				if block.backing == "" {
 					continue
@@ -81,6 +80,40 @@ func kernelDisksUnusedAt(disks []proxmox.Disk, sysRoot, procRoot string) error {
 	return nil
 }
 
+func readKernelMounts(procRoot string) (map[string]bool, error) {
+	entries, err := os.ReadDir(procRoot)
+	if err != nil {
+		return nil, fmt.Errorf("inspect process mount namespaces: %w", err)
+	}
+	paths := []string{filepath.Join(procRoot, "self", "mountinfo")}
+	for _, entry := range entries {
+		if _, err := strconv.Atoi(entry.Name()); err == nil {
+			paths = append(paths, filepath.Join(procRoot, entry.Name(), "mountinfo"))
+		}
+	}
+	mounted := make(map[string]bool)
+	for index, path := range paths {
+		data, err := os.ReadFile(path)
+		if index > 0 && (errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH)) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("inspect kernel mount namespace: %w", err)
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if line == "" {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 7 || !strings.Contains(line, " - ") {
+				return nil, errors.New("cannot reconcile malformed kernel mount information")
+			}
+			mounted[fields[2]] = true
+		}
+	}
+	return mounted, nil
+}
+
 func checkKernelBlock(number string, blocks []kernelBlock, mounted map[string]bool) error {
 	var location string
 	for _, block := range blocks {
@@ -97,13 +130,45 @@ func checkKernelBlock(number string, blocks []kernelBlock, mounted map[string]bo
 			continue
 		}
 		if mounted[block.number] {
-			return fmt.Errorf("block device %s is mounted by your host; protection is retained", block.name)
+			return fmt.Errorf("block device %s is mounted or active swap on your host; protection is retained", block.name)
 		}
 		if len(block.holders) != 0 {
 			return fmt.Errorf("block device %s has active holders %s; protection is retained", block.name, strings.Join(block.holders, ", "))
 		}
 	}
 	return nil
+}
+
+func readKernelSwaps(procRoot string, occupied map[string]bool) ([]os.FileInfo, error) {
+	data, err := os.ReadFile(filepath.Join(procRoot, "swaps"))
+	if err != nil {
+		return nil, fmt.Errorf("inspect active swap: %w", err)
+	}
+	var files []os.FileInfo
+	for index, line := range strings.Split(string(data), "\n") {
+		if index == 0 || line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 5 {
+			return nil, errors.New("cannot reconcile malformed active swap information")
+		}
+		info, err := os.Stat(decodeMount(fields[0]))
+		if err != nil {
+			return nil, fmt.Errorf("inspect active swap device: %w", err)
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return nil, errors.New("cannot identify active swap device")
+		}
+		device := uint64(stat.Dev)
+		if info.Mode()&os.ModeDevice != 0 {
+			device = uint64(stat.Rdev)
+		}
+		occupied[fmt.Sprintf("%d:%d", unix.Major(device), unix.Minor(device))] = true
+		files = append(files, info)
+	}
+	return files, nil
 }
 
 func readKernelBlocks(sysRoot string) ([]kernelBlock, error) {

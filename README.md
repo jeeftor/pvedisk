@@ -26,6 +26,8 @@ pvedisk config
 
 There is no default mount destination. Setup asks you for a directory, validates
 its canonical path, previews the layout, and asks before creating or saving it.
+On Linux, your destination must be owned by root and must not be writable by
+your group or other users.
 The default configuration file is `/etc/pvedisk/config.yaml`; use `--config` to
 select a specific file. Configuration is never loaded from your working directory.
 Cancelling setup leaves your configuration and virtual machines untouched.

@@ -94,6 +94,28 @@ func TestValidateRootAccess(t *testing.T) {
 	}
 }
 
+func TestValidateRootLinuxOwnershipPermissions(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux mount destination protection")
+	}
+	root := filepath.Join(t.TempDir(), "writable")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0770); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ValidateRoot(root); err == nil {
+		t.Fatal("accepted a group-writable destination")
+	}
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists, err := ValidateRoot(root); err != nil || !exists {
+		t.Fatalf("rejected private owned destination: %v", err)
+	}
+}
+
 func requireConfigOwner(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS == "linux" && os.Geteuid() != 0 {

@@ -51,6 +51,12 @@ func ValidateRoot(path string) (canonical string, exists bool, err error) {
 			if !info.IsDir() {
 				return "", false, fmt.Errorf("your mount root ancestor %q is not a directory", ancestor)
 			}
+			if runtime.GOOS == "linux" && len(suffix) == 0 {
+				stat, ok := info.Sys().(*syscall.Stat_t)
+				if !ok || int(stat.Uid) != os.Geteuid() || info.Mode().Perm()&0022 != 0 {
+					return "", false, errors.New("your mount root must be owned by your effective user and not writable by your group or other users; run setup as root")
+				}
+			}
 			if accessErr := syscall.Access(resolved, 7); accessErr != nil {
 				return "", false, fmt.Errorf("access your mount root %q: %w", resolved, accessErr)
 			}
