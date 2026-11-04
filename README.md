@@ -42,6 +42,8 @@ password reset require valid configuration and never run setup for you.
 Back up your guest before repairing its disks. The following example uses VM 400:
 
 ```console
+pvedisk mount
+# Enter your VM ID when prompted; or supply it directly:
 pvedisk mount 400 --ro
 pvedisk status 400
 pvedisk unmount 400
@@ -51,6 +53,11 @@ pvedisk mount 400
 pvedisk unmount 400
 qm start 400
 ```
+
+When you omit the VM ID, `mount` prompts for it in a terminal. Scripts must
+provide the ID explicitly. Existing VM destination paths are refused even when
+they are empty, so files or mounts from an earlier tool are never hidden.
+See [recovery](docs/recovery.md) if your destination already exists.
 
 `<mount-root>/vm400/` corresponds to the guest's `/`, including separate Linux
 mountpoints such as `/boot` and `/home`. Other mountable filesystems appear under

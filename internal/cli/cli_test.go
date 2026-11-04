@@ -26,18 +26,60 @@ func testOperations() operations {
 }
 
 func execute(ops operations, args ...string) (string, error) {
+	return executeInput(ops, "", args...)
+}
+
+func executeInput(ops operations, input string, args ...string) (string, error) {
 	var output bytes.Buffer
 	command := newCommand(ops)
 	command.SetOut(&output)
 	command.SetErr(&output)
-	command.SetIn(strings.NewReader(""))
+	command.SetIn(strings.NewReader(input))
 	command.SetArgs(args)
 	err := command.Execute()
 	return output.String(), err
 }
 
+func TestMountPromptsForMissingVMID(t *testing.T) {
+	for _, tc := range []struct {
+		name, input         string
+		terminal, wantMount bool
+	}{
+		{"interactive", "400\n", true, true},
+		{"invalid", "invalid\n", true, false},
+		{"empty", "\n", true, false},
+		{"cancelled", "", true, false},
+		{"noninteractive", "400\n", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := testOperations()
+			ops.load = func(string) (config.Config, error) { return config.Config{MountRoot: "/repairs"}, nil }
+			ops.terminal = func(*cobra.Command) bool { return tc.terminal }
+			called := false
+			ops.mount = func(_ context.Context, id int, _ string, ro bool) error {
+				if id != 400 || !ro {
+					t.Fatalf("id=%d ro=%v", id, ro)
+				}
+				called = true
+				return nil
+			}
+			ops.status = func(int) (*session.State, error) { return &session.State{Public: "/repairs/vm400"}, nil }
+			output, err := executeInput(ops, tc.input, "mount", "--ro")
+			if called != tc.wantMount || (err == nil) != tc.wantMount {
+				t.Fatalf("called=%v output=%q err=%v", called, output, err)
+			}
+			if tc.terminal && !strings.Contains(output, "VM ID:") {
+				t.Fatalf("missing prompt: %q", output)
+			}
+			if !tc.terminal && strings.Contains(output, "VM ID:") {
+				t.Fatal("prompted without a terminal")
+			}
+		})
+	}
+}
+
 func TestMissingConfigurationDoesNotStartVMOperations(t *testing.T) {
-	for _, args := range [][]string{nil, {"mount", "400"}, {"reset-root", "400"}} {
+	for _, args := range [][]string{nil, {"mount"}, {"mount", "400"}, {"reset-root", "400"}} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			ops := testOperations()
 			ops.mount = func(context.Context, int, string, bool) error { t.Fatal("mount called"); return nil }

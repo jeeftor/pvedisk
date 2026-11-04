@@ -50,8 +50,10 @@ func (m *Manager) intent(id int, root string, ro bool) (*State, error) {
 	}
 	s := &State{VMID: id, Token: hex.EncodeToString(token), Phase: "pending", Root: canonical, ReadOnly: ro, Public: filepath.Join(canonical, fmt.Sprintf("vm%d", id)), Extras: filepath.Join(canonical, fmt.Sprintf("vm%d-extra", id)), Staging: filepath.Join(m.root, fmt.Sprintf("vm%d-stage", id))}
 	for _, p := range []string{s.Public, s.Extras, s.Staging} {
-		if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("your destination is occupied: %s", p)
+		if _, err := os.Lstat(p); err == nil {
+			return nil, fmt.Errorf("your mount destination %q already exists; it may contain files or mounts from an earlier tool or session. Inspect it with findmnt and check pvedisk status %d before moving or removing it; this attempt has not requested a guest shutdown", p, id)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("inspect your mount destination %q: %w", p, err)
 		}
 	}
 	return s, m.save(s)

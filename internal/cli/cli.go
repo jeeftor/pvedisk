@@ -2,13 +2,16 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/jeeftor/pvedisk/internal/config"
 	"github.com/jeeftor/pvedisk/internal/proxmox"
@@ -121,6 +124,26 @@ func newCommand(ops operations) *cobra.Command {
 		return nil
 	})
 	mount.Flags().BoolVar(&readOnly, "ro", false, "Mount all guest disks read-only")
+	mount.Use = "mount [VMID]"
+	mount.Args = cobra.MaximumNArgs(1)
+	runMount := mount.RunE
+	mount.RunE = func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			if _, err := requireConfig(cmd, ops, configPath); err != nil {
+				return err
+			}
+			if !ops.terminal(cmd) {
+				return errors.New("provide your VM ID when running without a terminal: pvedisk mount 400")
+			}
+			fmt.Fprint(cmd.OutOrStdout(), "VM ID: ")
+			input, err := bufio.NewReader(io.LimitReader(cmd.InOrStdin(), 64)).ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("read your VM ID; mount cancelled: %w", err)
+			}
+			args = []string{strings.TrimSpace(input)}
+		}
+		return runMount(cmd, args)
+	}
 	root.AddCommand(mount)
 	root.AddCommand(vmCommand("status", "Show your recorded repair session", func(cmd *cobra.Command, id int) error {
 		state, err := ops.status(id)

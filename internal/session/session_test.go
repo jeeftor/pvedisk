@@ -51,8 +51,8 @@ func TestOccupiedDestinationUntouched(t *testing.T) {
 	if err := os.Mkdir(path, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.intent(400, root, false); err == nil {
-		t.Fatal("occupied path accepted")
+	if _, err := m.intent(400, root, false); err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "already exists") || !strings.Contains(err.Error(), "findmnt") {
+		t.Fatalf("expected an actionable conflict error, got %v", err)
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal("occupied directory changed")

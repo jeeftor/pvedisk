@@ -29,3 +29,21 @@ or another owner's lock, investigate the ownership change before proceeding.
 After host reboot, verify that the appliance and its disk access are gone and run
 recovery against the preserved state. A missing configuration file is not a reason
 to recreate the mount root or discard session records.
+
+## Destination already exists
+
+This error means the exact VM root, extras, or internal staging path already
+exists. An empty directory also causes this error. An inspection failure, such
+as permission denied, is reported separately. These checks happen before your
+guest is shut down.
+
+A previous tool may have mounted guest partitions under that directory. Never
+use `rm -rf` to clear it: deleting through a mounted filesystem deletes guest
+files. Rebooting normally removes mounts, but leaves the directories behind.
+
+Use `pvedisk status VMID` to check for a current session and use its normal
+unmount/recovery commands when one exists. For another tool's mounts, inspect
+the exact path and its children with `findmnt` and use that tool's cleanup.
+Only after confirming that no mounts remain should you move aside old files
+or remove empty directories with `rmdir`. Do not remove persistent session state
+or an owned lock to bypass this check.
