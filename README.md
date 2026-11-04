@@ -4,6 +4,10 @@ Repair a stopped Proxmox Linux virtual machine through a reconstructed filesyste
 tree. `pvedisk` uses libguestfs directly and keeps a Proxmox startup lock in place
 until disk access has finished. Writable mounting is the default; request
 `--ro` when you only need to inspect a guest.
+Read-only sessions also keep the VM stopped and locked: a running guest could
+change the disk underneath your filesystem view. Unmount successfully before
+starting the VM. Inspect a separate snapshot or backup copy if the original VM
+must remain running.
 
 This project targets amd64 Proxmox 8 (Debian 12) and Proxmox 9 (Debian 13).
 Builds require Go 1.27.3, CGO, and the native libguestfs development libraries.
@@ -59,6 +63,14 @@ provide the ID explicitly. Existing VM destination paths are refused even when
 they are empty, so files or mounts from an earlier tool are never hidden.
 See [recovery](docs/recovery.md) if your destination already exists.
 
+During startup, `mount` prints progress as the worker changes phases. On success,
+it confirms the access mode, guest root, extras directory, discovered filesystems,
+and the unmount command. On failure, it gives you the command to inspect the
+recorded session. `status` reports when no pvedisk session is recorded; it does
+not track mounts created by other tools or list every Proxmox VM.
+In a terminal, status uses syntax-colored, indented JSON. Redirected status output
+remains plain JSON. Set `NO_COLOR=1` or `TERM=dumb` to disable terminal colors.
+
 `<mount-root>/vm400/` corresponds to the guest's `/`, including separate Linux
 mountpoints such as `/boot` and `/home`. Other mountable filesystems appear under
 `<mount-root>/vm400-extra/<filesystem-id>/`. Swap and partition containers are
@@ -100,6 +112,9 @@ Close processes using the repair tree and retry cleanup. Never use lazy unmount,
 
 You cannot change the mount destination while active or unresolved sessions
 exist. A successful cleanup prints the command you can run to start your guest.
+Successful cleanup removes the directories created for that session, its socket,
+log, and state file. Your configured mount root remains. Unexpected files or
+replaced directories stop cleanup before the startup lock is released.
 
 ## Develop and verify
 

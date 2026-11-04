@@ -32,6 +32,39 @@ The bundle includes raw `pvedisk-linux-amd64-debian12` and
 notices. Do not interchange the two distribution binaries: their native library
 and C runtime requirements come from the matching build environment.
 
+## From a GitLab pipeline build
+
+Open your `jeef/pvedisk` pipeline and download the artifacts from
+`build-debian12` for Proxmox 8 or `build-debian13` for Proxmox 9. Each artifact
+contains a `dist/debian12` or `dist/debian13` directory with the raw binary,
+installer, checksum manifest, and licenses. After extracting and copying your
+matching directory to the destination host, run as root:
+
+```sh
+cd dist/debian12  # Use dist/debian13 for Proxmox 9.
+sha256sum --check SHA256SUMS
+sh install.sh --artifact-dir "$PWD"
+pvedisk --version
+pvedisk doctor
+pvedisk setup
+```
+
+The GitLab pipeline builds with CGO and pinned Go 1.27.3 in public Debian 12 and
+13 images. Native builds run formatting, vetting, unit tests, race detection,
+and shell checks. Separate fresh Debian jobs verify installation and execution
+without a Go compiler. Separate required integration jobs verify disk-image
+mounting, persisted edits, and read-only enforcement. Their Docker runner needs
+`CAP_SYS_ADMIN` and a usable `/dev/fuse` device, usually supplied through the
+runner's privileged-mode configuration. A missing capability fails the
+integration job explicitly; the native build artifacts remain downloadable.
+These disk-image checks do not establish disposable-Proxmox acceptance.
+
+The pipeline selects runners tagged `mitre-no-cui`. Go downloads verify the
+pinned upstream SHA256 checksum. When your runner supplies
+`CI_SERVER_TLS_CA_FILE`, the build job combines that chain with Debian's public
+certificate roots for its own download and dependency processes. It does not
+disable TLS verification or change your workstation's trust settings.
+
 ## From a tagged release
 
 When a tagged release is available, download and review its installer. Then run:
@@ -62,4 +95,5 @@ CGO_ENABLED=1 go build -trimpath -o pvedisk .
 `libguestfs.org/guestfs` resolves to the pinned upstream-generated bindings in
 `third_party/guestfs`. Native libraries remain dynamically linked host
 dependencies. See `.github/workflows/build.yml` for the complete repeatable
-Debian build and integration environment.
+GitHub Debian build and integration environment, or `.gitlab-ci.yml` and
+`scripts/gitlab-build.sh` for the equivalent GitLab jobs.

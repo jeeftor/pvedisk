@@ -48,6 +48,7 @@ func (m *Manager) Worker(ctx context.Context, id int) error {
 		if err != nil {
 			return m.fail(s, err)
 		}
+		s.Phase = "stopping"
 		if err = m.save(s); err != nil {
 			return err
 		}
@@ -100,6 +101,7 @@ func (m *Manager) Worker(ctx context.Context, id int) error {
 		if err != nil {
 			return m.fail(s, err)
 		}
+		s.Phase = "mounting"
 		if err = m.save(s); err != nil {
 			return err
 		}
@@ -126,6 +128,9 @@ func (m *Manager) Worker(ctx context.Context, id int) error {
 		if err != nil {
 			return m.fail(s, err)
 		}
+		// Persistent cleanup owns this path; a late listener close must not unlink
+		// the socket of a later session after the operation lock is released.
+		listener.(*net.UnixListener).SetUnlinkOnClose(false)
 		if err = os.Chmod(m.socketPath(id), 0600); err != nil {
 			return m.fail(s, err)
 		}
@@ -186,8 +191,8 @@ func unmount(path string) error {
 	if !mounted {
 		return nil
 	}
-	if err = exec.Command("umount", path).Run(); err != nil {
-		return fmt.Errorf("your mount %s is busy or could not be unmounted; protection is retained: %w", path, err)
+	if output, err := exec.Command("umount", path).CombinedOutput(); err != nil {
+		return fmt.Errorf("your mount %s is busy or could not be unmounted; protection is retained: %w\n%s\n%s", path, err, diagnosticOutput(output, 1024), busyMountDiagnostic(path))
 	}
 	return nil
 }
@@ -228,14 +233,7 @@ func (m *Manager) finalize(ctx context.Context, s *State, h interface{ Close() e
 	if err := assertDisksUnused(s.Disks); err != nil {
 		return m.fail(s, err)
 	}
-	s.Phase = "finalized"
-	if err := m.save(s); err != nil {
-		return err
-	}
-	if err := proxmox.New().Release(ctx, s.VMID, s.Token); err != nil {
-		return m.fail(s, err)
-	}
-	return m.remove(s)
+	return m.finish(s, func() error { return proxmox.New().Release(ctx, s.VMID, s.Token) })
 }
 
 func decodeMount(value string) string {
@@ -327,7 +325,11 @@ func assertDisksUnused(disks []proxmox.Disk) error {
 					return err
 				}
 				if sameDisk(fi, di) {
-					return fmt.Errorf("your disk %s is open in process %s; protection is retained", disk.Path, entry.Name())
+					process := entry.Name()
+					if name, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "comm")); err == nil {
+						process += " (" + strconv.Quote(strings.TrimSpace(string(name))) + ")"
+					}
+					return fmt.Errorf("your disk %s is open in process %s; protection is retained", disk.Path, process)
 				}
 			}
 		}

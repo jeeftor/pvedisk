@@ -9,7 +9,9 @@ import (
 
 func main() {
 	if err := cli.NewCommand().Execute(); err != nil {
-		slog.Error("pvedisk failed", "error", err)
+		if !cli.PrintError(os.Stderr, err) {
+			slog.Error("pvedisk failed", "error", err)
+		}
 		os.Exit(1)
 	}
 }

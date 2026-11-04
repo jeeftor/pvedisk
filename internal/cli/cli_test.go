@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jeeftor/pvedisk/internal/appliance"
 	"github.com/jeeftor/pvedisk/internal/config"
 	"github.com/jeeftor/pvedisk/internal/session"
 	"github.com/spf13/cobra"
@@ -56,7 +57,7 @@ func TestMountPromptsForMissingVMID(t *testing.T) {
 			ops.load = func(string) (config.Config, error) { return config.Config{MountRoot: "/repairs"}, nil }
 			ops.terminal = func(*cobra.Command) bool { return tc.terminal }
 			called := false
-			ops.mount = func(_ context.Context, id int, _ string, ro bool) error {
+			ops.mount = func(_ context.Context, id int, _ string, ro bool, _ func(string)) error {
 				if id != 400 || !ro {
 					t.Fatalf("id=%d ro=%v", id, ro)
 				}
@@ -82,7 +83,7 @@ func TestMissingConfigurationDoesNotStartVMOperations(t *testing.T) {
 	for _, args := range [][]string{nil, {"mount"}, {"mount", "400"}, {"reset-root", "400"}} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			ops := testOperations()
-			ops.mount = func(context.Context, int, string, bool) error { t.Fatal("mount called"); return nil }
+			ops.mount = func(context.Context, int, string, bool, func(string)) error { t.Fatal("mount called"); return nil }
 			ops.password = func(*cobra.Command) ([]byte, error) { t.Fatal("password prompted"); return nil, nil }
 			ops.reset = func(context.Context, int, string, []byte) error { t.Fatal("reset called"); return nil }
 			output, err := execute(ops, args...)
@@ -171,6 +172,28 @@ func TestUnmountAndRecoveryIgnoreDamagedConfiguration(t *testing.T) {
 	}
 }
 
+func TestStatusExplainsMissingSession(t *testing.T) {
+	ops := testOperations()
+	ops.status = func(int) (*session.State, error) {
+		return nil, &os.PathError{Op: "lstat", Path: "/var/lib/pvedisk/400.json", Err: os.ErrNotExist}
+	}
+	_, err := execute(ops, "status", "400")
+	if err == nil || !strings.Contains(err.Error(), "no recorded pvedisk repair session") || !strings.Contains(err.Error(), "other tools") || strings.Contains(err.Error(), ".json") {
+		t.Fatalf("unhelpful status error: %v", err)
+	}
+}
+
+func TestStatusPreservesStateErrors(t *testing.T) {
+	for _, stateErr := range []error{os.ErrPermission, errors.New("invalid session ownership state")} {
+		ops := testOperations()
+		ops.status = func(int) (*session.State, error) { return nil, stateErr }
+		_, err := execute(ops, "status", "400")
+		if !errors.Is(err, stateErr) || strings.Contains(err.Error(), "no recorded") {
+			t.Fatalf("lost actual state error: %v", err)
+		}
+	}
+}
+
 func TestWizardCancellationAndValidation(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "new-destination")
 	m := newSetupModel(destination)
@@ -200,7 +223,7 @@ func TestMountReadOnlyIsExplicit(t *testing.T) {
 		ops := testOperations()
 		ops.load = func(string) (config.Config, error) { return config.Config{MountRoot: "/repairs"}, nil }
 		called := false
-		ops.mount = func(_ context.Context, id int, root string, readOnly bool) error {
+		ops.mount = func(_ context.Context, id int, root string, readOnly bool, _ func(string)) error {
 			called = id == 400 && root == config.DefaultPath && readOnly == ro
 			return nil
 		}
@@ -218,7 +241,7 @@ func TestMountReadOnlyIsExplicit(t *testing.T) {
 func TestDamagedConfigurationPreventsDiskActions(t *testing.T) {
 	ops := testOperations()
 	ops.load = func(string) (config.Config, error) { return config.Config{}, errors.New("invalid configuration") }
-	ops.mount = func(context.Context, int, string, bool) error { t.Fatal("mount called"); return nil }
+	ops.mount = func(context.Context, int, string, bool, func(string)) error { t.Fatal("mount called"); return nil }
 	_, err := execute(ops, "mount", "400")
 	if err == nil || !strings.Contains(err.Error(), "invalid configuration") {
 		t.Fatalf("err=%v", err)
@@ -253,5 +276,52 @@ func TestInvalidVMIDDoesNotCallBackend(t *testing.T) {
 		if _, err := execute(ops, "unmount", id); err == nil {
 			t.Fatalf("accepted %q", id)
 		}
+	}
+}
+
+func TestMountReportsProgressAndConfirmedLocations(t *testing.T) {
+	for _, ro := range []bool{false, true} {
+		ops := testOperations()
+		ops.load = func(string) (config.Config, error) { return config.Config{MountRoot: "/repairs"}, nil }
+		ops.mount = func(_ context.Context, _ int, _ string, _ bool, progress func(string)) error {
+			for _, phase := range []string{"pending", "stopping", "acquiring", "launching", "mounting", "prepared", "mounted"} {
+				progress(phase)
+			}
+			return nil
+		}
+		ops.status = func(int) (*session.State, error) {
+			return &session.State{ReadOnly: ro, Public: "/repairs/vm406", Extras: "/repairs/vm406-extra", Inventory: appliance.Inventory{Filesystems: []appliance.Filesystem{{Device: "/dev/sda1", Type: "ext4", Mountpoint: "/", Mounted: true}, {Device: "/dev/sda2", Type: "swap"}}}}, nil
+		}
+		args := []string{"mount", "406"}
+		if ro {
+			args = append(args, "--ro")
+		}
+		output, err := execute(ops, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mode := "read/write"
+		if ro {
+			mode = "read-only"
+		}
+		for _, want := range []string{"graceful shutdown", "startup protection", "libguestfs appliance", "mounting your guest", "mounted (" + mode + ")", "/repairs/vm406", "/repairs/vm406-extra", "pvedisk unmount 406", "/dev/sda1", "ext4", "swap", "not mounted"} {
+			if !strings.Contains(output, want) {
+				t.Fatalf("missing %q in %q", want, output)
+			}
+		}
+	}
+}
+
+func TestMountFailureDoesNotClaimSuccess(t *testing.T) {
+	ops := testOperations()
+	ops.load = func(string) (config.Config, error) { return config.Config{MountRoot: "/repairs"}, nil }
+	ops.mount = func(_ context.Context, _ int, _ string, _ bool, progress func(string)) error {
+		progress("launching")
+		return errors.New("appliance failed")
+	}
+	ops.status = func(int) (*session.State, error) { t.Fatal("read success state after failure"); return nil, nil }
+	output, err := execute(ops, "mount", "406")
+	if err == nil || !strings.Contains(err.Error(), "pvedisk status 406") || strings.Contains(output, "is mounted") {
+		t.Fatalf("output=%q err=%v", output, err)
 	}
 }

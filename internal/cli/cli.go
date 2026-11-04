@@ -5,13 +5,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/jeeftor/pvedisk/internal/config"
 	"github.com/jeeftor/pvedisk/internal/proxmox"
@@ -23,7 +23,7 @@ import (
 type operations struct {
 	hasSessions func() (bool, error)
 	setupLock   func(func() error) error
-	mount       func(context.Context, int, string, bool) error
+	mount       func(context.Context, int, string, bool, func(string)) error
 	unmount     func(context.Context, int) error
 	recover     func(context.Context, int) error
 	reset       func(context.Context, int, string, []byte) error
@@ -75,11 +75,25 @@ func newCommand(ops operations) *cobra.Command {
 			if err := cmd.Help(); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "\nConfigured destination: %s\n", cfg.MountRoot)
+			p := outputPalette(cmd.OutOrStdout())
+			fmt.Fprintf(cmd.OutOrStdout(), "\n%s %s\n", p.label.Render("Configured destination:"), p.path.Render(cfg.MountRoot))
 			return nil
 		},
 		Args: cobra.NoArgs,
 	}
+	defaultHelp := root.HelpFunc()
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		if !colorEnabled(cmd.OutOrStdout()) {
+			defaultHelp(cmd, args)
+			return
+		}
+		var output bytes.Buffer
+		original := cmd.OutOrStdout()
+		cmd.SetOut(&output)
+		defaultHelp(cmd, args)
+		cmd.SetOut(original)
+		fmt.Fprint(original, styledHelp(original, output.String()))
+	})
 	root.PersistentFlags().StringVar(&configPath, "config", config.DefaultPath, "Configuration file (no directory search)")
 	var mountRoot string
 	var yes bool
@@ -95,7 +109,8 @@ func newCommand(ops operations) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load %s: %w", configPath, err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Configuration: %s\nmount_root: %s\n", configPath, cfg.MountRoot)
+			p := outputPalette(cmd.OutOrStdout())
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n%s %s\n", p.label.Render("Configuration:"), p.path.Render(configPath), p.label.Render("mount_root:"), p.path.Render(cfg.MountRoot))
 			return nil
 		},
 	})
@@ -104,7 +119,7 @@ func newCommand(ops operations) *cobra.Command {
 			if err := ops.doctor(cmd.Context()); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "Your host runtime checks passed.")
+			fmt.Fprintln(cmd.OutOrStdout(), outputPalette(cmd.OutOrStdout()).success.Render("Your host runtime checks passed."))
 			return nil
 		},
 	})
@@ -113,14 +128,47 @@ func newCommand(ops operations) *cobra.Command {
 		if _, err := requireConfig(cmd, ops, configPath); err != nil {
 			return err
 		}
-		if err := ops.mount(cmd.Context(), id, configPath, readOnly); err != nil {
-			return err
+		if err := ops.mount(cmd.Context(), id, configPath, readOnly, func(phase string) {
+			if message := mountPhaseMessage(phase); message != "" {
+				p := outputPalette(cmd.OutOrStdout())
+				fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.label.Render(fmt.Sprintf("VM %d:", id)), p.muted.Render(message))
+			}
+		}); err != nil {
+			return fmt.Errorf("mount VM %d: %w\nCheck your session with: pvedisk status %d", id, err, id)
 		}
 		state, err := ops.status(id)
 		if err != nil {
 			return fmt.Errorf("your mount started, but its recorded location could not be read: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Your guest root is available at %s\n", state.Public)
+		mode := "read/write"
+		if state.ReadOnly {
+			mode = "read-only"
+		}
+		p := outputPalette(cmd.OutOrStdout())
+		modeStyle := p.warning
+		if state.ReadOnly {
+			modeStyle = p.success
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s (%s).\n%s %s\n%s %s\n", p.success.Render(fmt.Sprintf("Your VM %d is mounted", id)), modeStyle.Render(mode), p.label.Render("Guest root:"), p.path.Render(state.Public), p.label.Render("Additional filesystems:"), p.path.Render(state.Extras))
+		if len(state.Inventory.Filesystems) > 0 {
+			var table bytes.Buffer
+			w := tabwriter.NewWriter(&table, 0, 4, 2, ' ', 0)
+			fmt.Fprintln(w, "DEVICE\tTYPE\tGUEST MOUNTPOINT")
+			for _, fs := range state.Inventory.Filesystems {
+				point := fs.Mountpoint
+				if !fs.Mounted {
+					point = "not mounted"
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\n", fs.Device, fs.Type, point)
+			}
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			header, rows, _ := strings.Cut(table.String(), "\n")
+			fmt.Fprintln(cmd.OutOrStdout(), p.label.Render(header))
+			fmt.Fprint(cmd.OutOrStdout(), rows)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.muted.Render("When you finish, run:"), p.path.Render(fmt.Sprintf("pvedisk unmount %d", id)))
 		return nil
 	})
 	mount.Flags().BoolVar(&readOnly, "ro", false, "Mount all guest disks read-only")
@@ -135,7 +183,7 @@ func newCommand(ops operations) *cobra.Command {
 			if !ops.terminal(cmd) {
 				return errors.New("provide your VM ID when running without a terminal: pvedisk mount 400")
 			}
-			fmt.Fprint(cmd.OutOrStdout(), "VM ID: ")
+			fmt.Fprint(cmd.OutOrStdout(), outputPalette(cmd.OutOrStdout()).label.Render("VM ID:")+" ")
 			input, err := bufio.NewReader(io.LimitReader(cmd.InOrStdin(), 64)).ReadString('\n')
 			if err != nil {
 				return fmt.Errorf("read your VM ID; mount cancelled: %w", err)
@@ -147,12 +195,13 @@ func newCommand(ops operations) *cobra.Command {
 	root.AddCommand(mount)
 	root.AddCommand(vmCommand("status", "Show your recorded repair session", func(cmd *cobra.Command, id int) error {
 		state, err := ops.status(id)
-		if err != nil {
-			return err
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("your VM %d has no recorded pvedisk repair session. Mounts created by other tools are not tracked. To start a session, run: pvedisk mount %d", id, id)
 		}
-		encoder := json.NewEncoder(cmd.OutOrStdout())
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(state)
+		if err != nil {
+			return fmt.Errorf("read your repair session for VM %d: %w", id, err)
+		}
+		return writeStatus(cmd.OutOrStdout(), state)
 	}))
 	for _, action := range []struct {
 		name, description string
@@ -165,7 +214,8 @@ func newCommand(ops operations) *cobra.Command {
 			if err := action.run(cmd.Context(), id); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "You can now run: qm start %d\n", id)
+			p := outputPalette(cmd.OutOrStdout())
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.success.Render("You can now run:"), p.path.Render(fmt.Sprintf("qm start %d", id)))
 			return nil
 		}))
 	}
@@ -181,13 +231,37 @@ func newCommand(ops operations) *cobra.Command {
 		if err := ops.reset(cmd.Context(), id, configPath, password); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Your guest root password was updated.\nYou can now run: qm start %d\n", id)
+		p := outputPalette(cmd.OutOrStdout())
+		fmt.Fprintf(cmd.OutOrStdout(), "%s\n%s %s\n", p.success.Render("Your guest root password was updated."), p.success.Render("You can now run:"), p.path.Render(fmt.Sprintf("qm start %d", id)))
 		return nil
 	}))
 	worker := vmCommand("_worker", "Internal detached session worker", func(cmd *cobra.Command, id int) error { return ops.worker(cmd.Context(), id) })
 	worker.Hidden = true
 	root.AddCommand(worker)
 	return root
+}
+
+func mountPhaseMessage(phase string) string {
+	switch phase {
+	case "pending":
+		return "starting your repair worker"
+	case "inspecting":
+		return "checking your VM and attached disks"
+	case "stopping":
+		return "ensuring your VM is stopped; graceful shutdown can take up to 120 seconds"
+	case "acquiring":
+		return "acquiring startup protection and rechecking your disks"
+	case "protected":
+		return "startup protection acquired; checking for other disk users"
+	case "launching":
+		return "starting your libguestfs appliance"
+	case "mounting":
+		return "inspecting and mounting your guest filesystems"
+	case "prepared":
+		return "exposing your guest filesystem tree"
+	default:
+		return ""
+	}
 }
 
 func vmCommand(name, description string, run func(*cobra.Command, int) error) *cobra.Command {
@@ -280,7 +354,7 @@ func runSetup(cmd *cobra.Command, ops operations, path, requested string, yes bo
 			return err
 		}
 		if !confirmed {
-			fmt.Fprintln(cmd.OutOrStdout(), "Your setup was cancelled.")
+			fmt.Fprintln(cmd.OutOrStdout(), outputPalette(cmd.OutOrStdout()).muted.Render("Your setup was cancelled."))
 			return nil
 		}
 	}
@@ -319,7 +393,8 @@ func runSetup(cmd *cobra.Command, ops operations, path, requested string, yes bo
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Your configuration was saved to %s\n", path)
+	p := outputPalette(cmd.OutOrStdout())
+	fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.success.Render("Your configuration was saved to"), p.path.Render(path))
 	return nil
 }
 

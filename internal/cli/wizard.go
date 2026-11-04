@@ -3,10 +3,10 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/jeeftor/pvedisk/internal/config"
 )
 
@@ -18,6 +18,7 @@ type setupModel struct {
 	confirmed  bool
 	cancelled  bool
 	err        error
+	styles     palette
 }
 
 func newSetupModel(initial string) setupModel {
@@ -26,7 +27,17 @@ func newSetupModel(initial string) setupModel {
 	input.Placeholder = "Enter an absolute directory"
 	input.SetValue(initial)
 	input.Focus()
-	return setupModel{input: input}
+	m := setupModel{input: input}
+	m.setPalette(outputPalette(os.Stdout))
+	return m
+}
+
+func (m *setupModel) setPalette(styles palette) {
+	m.styles = styles
+	m.input.PromptStyle = styles.label
+	m.input.TextStyle = styles.path
+	m.input.PlaceholderStyle = styles.muted
+	m.input.Cursor.Style = styles.label
 }
 
 func (m setupModel) Init() tea.Cmd { return textinput.Blink }
@@ -73,17 +84,18 @@ func (m setupModel) View() string {
 	if m.cancelled || m.confirmed {
 		return ""
 	}
-	title := lipgloss.NewStyle().Bold(true).Render("Configure your pvedisk mount destination")
+	p := m.styles
+	title := p.title.Render("Configure your pvedisk mount destination")
 	if m.confirming {
 		creation := ""
 		if m.missing {
-			creation = fmt.Sprintf("Create your missing directory %s?\n", m.canonical)
+			creation = p.warning.Render(fmt.Sprintf("Create your missing directory %s?", m.canonical)) + "\n"
 		}
-		return title + "\n\n" + layout(m.canonical) + "\n" + creation + "Save this configuration" + confirmationSuffix(m.missing) + " [y/N] (Escape cancels)\n"
+		return title + "\n" + p.muted.Render("2 / 2  Review and confirm") + "\n\n" + p.path.Render(layout(m.canonical)) + "\n" + creation + p.label.Render("Save this configuration"+confirmationSuffix(m.missing)) + " " + p.success.Render("[y/N]") + " " + p.muted.Render("(Escape cancels)") + "\n"
 	}
-	message := title + "\n\n" + m.input.View() + "\n\nEnter continues; Escape cancels.\n"
+	message := title + "\n" + p.muted.Render("1 / 2  Choose your destination") + "\n\n" + m.input.View() + "\n\n" + p.muted.Render("Enter continues; Escape cancels.") + "\n"
 	if m.err != nil {
-		message += fmt.Sprintf("\n%s\n", m.err)
+		message += "\n" + p.warning.Render(m.err.Error()) + "\n"
 	}
 	return message
 }
@@ -96,7 +108,9 @@ func confirmationSuffix(missing bool) string {
 }
 
 func wizard(input io.Reader, output io.Writer, initial string) (string, bool, error) {
-	model, err := tea.NewProgram(newSetupModel(initial), tea.WithInput(input), tea.WithOutput(output)).Run()
+	setup := newSetupModel(initial)
+	setup.setPalette(outputPalette(output))
+	model, err := tea.NewProgram(setup, tea.WithInput(input), tea.WithOutput(output)).Run()
 	if err != nil {
 		return "", false, fmt.Errorf("run your setup wizard: %w", err)
 	}

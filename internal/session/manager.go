@@ -60,7 +60,7 @@ func (m *Manager) intent(id int, root string, ro bool) (*State, error) {
 }
 
 // Mount starts a detached worker and waits until its public views are available.
-func (m *Manager) Mount(ctx context.Context, id int, configPath string, ro bool) error {
+func (m *Manager) Mount(ctx context.Context, id int, configPath string, ro bool, progress func(string)) error {
 	if runtime.GOOS != "linux" {
 		return errors.New("repair operations require Linux on a Proxmox host")
 	}
@@ -72,6 +72,9 @@ func (m *Manager) Mount(ctx context.Context, id int, configPath string, ro bool)
 		s, err := m.intent(id, cfg.MountRoot, ro)
 		if err != nil {
 			return err
+		}
+		if progress != nil {
+			progress(s.Phase)
 		}
 		exe, err := os.Executable()
 		if err != nil {
@@ -103,6 +106,7 @@ func (m *Manager) Mount(ctx context.Context, id int, configPath string, ro bool)
 	defer timer.Stop()
 	deadline := time.NewTimer(5 * time.Minute)
 	defer deadline.Stop()
+	lastPhase := "pending"
 	for {
 		select {
 		case <-ctx.Done():
@@ -113,6 +117,12 @@ func (m *Manager) Mount(ctx context.Context, id int, configPath string, ro bool)
 			s, err := m.Status(id)
 			if err != nil {
 				return err
+			}
+			if s.Phase != lastPhase {
+				lastPhase = s.Phase
+				if progress != nil {
+					progress(s.Phase)
+				}
 			}
 			if s.Phase == "mounted" {
 				return nil
@@ -207,12 +217,12 @@ func (m *Manager) Recover(ctx context.Context, id int) error {
 				return err
 			}
 		}
-		if s.ProtectionAttempted {
-			if err := proxmox.New().Release(ctx, id, s.Token); err != nil {
-				return fmt.Errorf("protection retained: %w", err)
+		return m.finish(s, func() error {
+			if !s.ProtectionAttempted {
+				return nil
 			}
-		}
-		return m.remove(s)
+			return proxmox.New().Release(ctx, id, s.Token)
+		})
 	})
 }
 
@@ -303,10 +313,10 @@ func (m *Manager) ResetRoot(ctx context.Context, id int, configPath string, pass
 		if err = assertDisksUnused(disks); err != nil {
 			return m.fail(s, err)
 		}
-		if err = p.Release(ctx, id, s.Token); err != nil {
+		if err = scrubPassword(name, m.root); err != nil {
 			return m.fail(s, err)
 		}
-		return m.remove(s)
+		return m.finish(s, func() error { return p.Release(ctx, id, s.Token) })
 	})
 }
 
@@ -318,17 +328,112 @@ func (m *Manager) fail(s *State, err error) error {
 	}
 	return err
 }
-func (m *Manager) remove(s *State) error {
+
+// finish removes only owned empty mount directories before releasing protection.
+// State remains until every per-session artifact has been removed successfully.
+func (m *Manager) finish(s *State, release func() error) error {
+	if err := m.checkArtifacts(s); err != nil {
+		return m.fail(s, err)
+	}
+	if err := m.removeDirectories(s); err != nil {
+		return m.fail(s, err)
+	}
+	s.Phase = "finalized"
+	s.Error = ""
+	if err := m.save(s); err != nil {
+		return err
+	}
+	if err := release(); err != nil {
+		return m.fail(s, fmt.Errorf("protection retained: %w", err))
+	}
+	if err := m.removeState(s); err != nil {
+		return m.fail(s, fmt.Errorf("protection released but session cleanup is incomplete; use recover: %w", err))
+	}
+	return nil
+}
+
+func (m *Manager) removeDirectories(s *State) error {
+	if err := m.validatePaths(s); err != nil {
+		return err
+	}
+	// Check every destination before removing any. Guest data and unexpected host
+	// files must never become cleanup targets, even after a successful unmount.
+	for _, p := range s.CreatedPaths {
+		fi, err := os.Lstat(p)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect your session directory %q: %w", p, err)
+		}
+		if !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("your session path %q is no longer a directory; protection is retained", p)
+		}
+		entries, err := os.ReadDir(p)
+		if err != nil {
+			return fmt.Errorf("inspect your session directory %q: %w", p, err)
+		}
+		if len(entries) != 0 {
+			return fmt.Errorf("your session directory %q contains unexpected files or directories; protection is retained", p)
+		}
+	}
 	for _, p := range s.CreatedPaths {
 		if p != "" {
-			if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if err := syscall.Rmdir(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("remove your empty session directory %q; protection is retained: %w", p, err)
+			}
+			if err := syncDirectory(filepath.Dir(p)); err != nil {
 				return err
 			}
 		}
 	}
-	_ = os.Remove(m.socketPath(s.VMID))
-	_ = os.Remove(filepath.Join(m.root, strconv.Itoa(s.VMID)+".log"))
-	return os.Remove(m.statePath(s.VMID))
+	return nil
+}
+
+func (m *Manager) removeState(s *State) error {
+	if err := m.checkArtifacts(s); err != nil {
+		return err
+	}
+	for _, path := range []string{m.socketPath(s.VMID), filepath.Join(m.root, strconv.Itoa(s.VMID)+".log")} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	if err := syncDirectory(m.root); err != nil {
+		return err
+	}
+	if err := os.Remove(m.statePath(s.VMID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return syncDirectory(m.root)
+}
+
+func (m *Manager) checkArtifacts(s *State) error {
+	for _, path := range []string{m.socketPath(s.VMID), filepath.Join(m.root, strconv.Itoa(s.VMID)+".log")} {
+		fi, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if path == m.socketPath(s.VMID) && fi.Mode()&os.ModeSocket == 0 {
+			return fmt.Errorf("unexpected data at your session socket %q", path)
+		}
+		if path != m.socketPath(s.VMID) && !fi.Mode().IsRegular() {
+			return fmt.Errorf("unexpected data at your session log %q", path)
+		}
+	}
+	return nil
+}
+
+func syncDirectory(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
 }
 
 func scrubPassword(path, root string) error {

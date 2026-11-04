@@ -101,7 +101,7 @@ func TestCleanupDoesNotRemoveUnownedPaths(t *testing.T) {
 	if err = os.Mkdir(s.Public, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err = m.remove(s); err != nil {
+	if err = m.finish(s, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = os.Stat(s.Public); err != nil {
