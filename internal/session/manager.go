@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jeeftor/pvedisk/internal/appliance"
 	"github.com/jeeftor/pvedisk/internal/config"
 	"github.com/jeeftor/pvedisk/internal/proxmox"
 )
@@ -252,6 +253,18 @@ func (m *Manager) ResetRoot(ctx context.Context, id int, configPath string, pass
 		return errors.New("your password must be nonempty and contain no newline or zero byte")
 	}
 	return m.offlineMaintenance(ctx, id, configPath, "password", func(s *State) error {
+		if len(s.Disks) > 1 {
+			disks := make([]appliance.Disk, 0, len(s.Disks))
+			for _, disk := range s.Disks {
+				disks = append(disks, appliance.Disk{Path: disk.Path, Format: disk.Format})
+			}
+			if err := appliance.CheckCustomizationMounts(disks); err != nil {
+				return fmt.Errorf("verify your guest disk ordering before password repair: %w", err)
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		return m.resetRootOffline(ctx, s, password)
 	})
 }

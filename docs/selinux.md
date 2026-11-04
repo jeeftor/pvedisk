@@ -34,6 +34,13 @@ The operation follows the same VM checks and protection as password maintenance:
 it rejects conflicting locks and unsafe lifecycle states, gracefully shuts down
 a running guest, and holds startup protection during offline disk access. It
 checks your guest's SELinux configuration and refuses missing or disabled SELinux.
+For multiple attached disks, the helper also refuses order-dependent device names
+such as `/dev/sda1` in your guest's `fstab`. `virt-customize` may attach disks in a
+different order; use stable filesystem UUIDs or LVM references so maintenance
+cannot select another filesystem at the same device name. Password maintenance
+uses the same check. This preflight does not rewrite your guest's `fstab`.
+The probe also verifies that its mounted root matches the inspected Linux root;
+an uncertain or conflicting root identity prevents customization.
 Through `virt-customize`, it creates the guest's `/.autorelabel` marker while
 disabling immediate relabeling. It never changes your guest's SELinux mode or
 starts the VM automatically. Failed or uncertain cleanup retains protection;

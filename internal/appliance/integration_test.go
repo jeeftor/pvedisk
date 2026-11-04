@@ -3,6 +3,7 @@
 package appliance
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,7 +59,18 @@ func TestDiskImage(t *testing.T) {
 			return g.Lsetxattr("security.selinux", selinuxContext, len(selinuxContext), "/etc/selinux/config")
 		},
 		func() error { return g.Mkdir("/bin") },
-		func() error { return g.Write("/etc/fstab", []byte("/dev/sda1 / ext4 defaults 0 1\n")) },
+		func() error {
+			// virt-customize can attach -a disks in a different order from our
+			// native handle. Identify the guest root independently of /dev/sdX.
+			uuid, err := g.Vfs_uuid("/dev/sda1")
+			if err != nil {
+				return err
+			}
+			if uuid == "" {
+				return fmt.Errorf("fixture root filesystem has no UUID")
+			}
+			return g.Write("/etc/fstab", []byte("UUID="+uuid+" / ext4 defaults 0 1\n"))
+		},
 		func() error {
 			return g.Write("/etc/os-release", []byte("NAME=Debian\nID=debian\nVERSION_ID=12\nPRETTY_NAME=Debian\n"))
 		},

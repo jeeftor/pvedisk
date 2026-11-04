@@ -265,7 +265,7 @@ func newCommand(ops operations) *cobra.Command {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s\n%s %s\n", p.success.Render("Your guest root password was updated."), p.success.Render("You can now run:"), p.path.Render(fmt.Sprintf("qm start %d", id)))
 		return nil
 	})
-	resetRoot.Long = "Set the root password of a supported Linux guest through virt-customize; this helper is not limited to RHEL 10. You need valid configuration and unmounted guest disks. Enter your new password twice at a terminal. Your guest is never restarted automatically."
+	resetRoot.Long = "Set the root password of a supported Linux guest through virt-customize; this helper is not limited to RHEL 10. You need valid configuration and unmounted guest disks. Multi-disk guests must use stable filesystem identifiers or LVM references in fstab instead of positional device names. Enter your new password twice at a terminal. Your guest is never restarted automatically."
 	utilities.AddCommand(resetRoot)
 	selinuxRelabel := vmCommand("selinux-relabel", "Schedule your guest SELinux relabel on its next boot", func(cmd *cobra.Command, id int) error {
 		if _, err := requireConfig(cmd, ops, configPath); err != nil {
@@ -280,7 +280,7 @@ func newCommand(ops operations) *cobra.Command {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.success.Render("You can now run:"), p.path.Render(fmt.Sprintf("qm start %d", id)))
 		return nil
 	})
-	selinuxRelabel.Long = "Schedule an SELinux filesystem relabel for your guest's next boot by creating /.autorelabel through protected offline maintenance. Your guest must already have SELinux configured as enforcing or permissive. Valid site configuration and unmounted disks are required. A running guest receives graceful shutdown and remains stopped. This helper does not perform the relabel immediately, enable SELinux, or restart your guest."
+	selinuxRelabel.Long = "Schedule an SELinux filesystem relabel for your guest's next boot by creating /.autorelabel through protected offline maintenance. Your guest must already have SELinux configured as enforcing or permissive. Valid site configuration and unmounted disks are required. Multi-disk guests must use stable filesystem identifiers or LVM references in fstab instead of positional device names. A running guest receives graceful shutdown and remains stopped. This helper does not perform the relabel immediately, enable SELinux, or restart your guest."
 	utilities.AddCommand(selinuxRelabel)
 	worker := vmCommand("_worker", "Internal detached session worker", func(cmd *cobra.Command, id int) error { return ops.worker(cmd.Context(), id) })
 	worker.Hidden = true
