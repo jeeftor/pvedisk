@@ -6,9 +6,9 @@ GitHub artifact builds verify distribution compilation and runtime linking.
 Neither proves that installed Proxmox modules, cluster locks, or a real VM behave
 correctly on your destination host.
 
-## Debian 12 and Debian 13 installation
+## Debian 13 installation
 
-For each supported amd64 distribution:
+On amd64 Debian 13 / Proxmox 9:
 
 - Download that distribution's binary and verify its published SHA256 checksum.
 - Run the installer on a clean disposable host with native packages available.
@@ -18,7 +18,7 @@ For each supported amd64 distribution:
 
 ## Disposable Proxmox acceptance
 
-Repeat on Proxmox 8 and 9, using a guest you can destroy and restore:
+On Proxmox 9, use a guest you can destroy and restore:
 
 - Exercise file-backed, LVM-backed, and ZFS-backed guest disks where available.
 - Verify a separate `/boot`, `/home`, guest LVM, and an additional filesystem.

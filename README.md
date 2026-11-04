@@ -9,10 +9,10 @@ change the disk underneath your filesystem view. Unmount successfully before
 starting the VM. Inspect a separate snapshot or backup copy if the original VM
 must remain running.
 
-This project targets amd64 Proxmox 8 (Debian 12) and Proxmox 9 (Debian 13).
+This project targets amd64 Proxmox 9 (Debian 13). The executable is named `pvedisk`.
 Builds require Go 1.27.3, CGO, and the native libguestfs development libraries.
 Installed binaries need native runtime packages, but no Go compiler or Python
-bindings. GitHub Actions builds each Debian binary in its matching distribution.
+bindings. GitHub Actions and GitLab CI build the binary in Debian 13 containers.
 
 ## Set up your host
 
@@ -150,7 +150,7 @@ CGO; other platforms provide a CLI/configuration development build that refuses
 disk access. Generated upstream Go bindings are pinned and licensed separately
 under `third_party/guestfs`.
 
-GitHub Actions runs Debian 12/13 builds and disk-image integration tests. Those
+GitHub Actions runs Debian 13 builds and disk-image integration tests. Those
 checks do not establish actual Proxmox acceptance. Follow the
 [acceptance checklist](docs/acceptance.md) on a disposable VM before relying on
 the utility for repairs. Our code is MIT licensed; upstream bindings retain their

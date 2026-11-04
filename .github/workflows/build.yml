@@ -12,15 +12,11 @@ permissions:
 
 jobs:
   debian:
-    name: Debian ${{ matrix.debian }} amd64
+    name: Debian 13 amd64
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        debian: ['12', '13']
     container:
-      image: debian:${{ matrix.debian }}
+      image: debian:13
       options: --privileged
     env:
       CGO_ENABLED: '1'
@@ -61,12 +57,12 @@ jobs:
           mkdir -p dist
           version="0.1.0-dev+$(printf '%s' "$BUILD_SHA" | cut -c 1-12)"
           case "$BUILD_REF" in refs/tags/v*) version=$BUILD_TAG ;; esac
-          go build -trimpath -buildvcs=false -ldflags "-X github.com/jeeftor/pvedisk/internal/cli.Version=$version" -o "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}" .
-          ldd "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}"
-          "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}" --help
-          "dist/pvedisk-linux-amd64-debian${{ matrix.debian }}" --version
+          go build -trimpath -buildvcs=false -ldflags "-X github.com/jeeftor/pvedisk/internal/cli.Version=$version" -o dist/pvedisk .
+          ldd dist/pvedisk
+          dist/pvedisk --help
+          dist/pvedisk --version
           cd dist
-          sha256sum "pvedisk-linux-amd64-debian${{ matrix.debian }}" > SHA256SUMS
+          sha256sum pvedisk > SHA256SUMS
       - name: Verify installation on this Debian version
         run: |
           sh scripts/install.sh --artifact-dir "$PWD/dist"
@@ -74,8 +70,8 @@ jobs:
           test ! -e /etc/pvedisk/config.yaml
       - uses: actions/upload-artifact@v4
         with:
-          name: debian-${{ matrix.debian }}-amd64
-          path: dist/pvedisk-linux-amd64-debian${{ matrix.debian }}
+          name: native-pvedisk
+          path: dist/pvedisk
           if-no-files-found: error
 
   artifacts:
@@ -86,16 +82,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: debian-*-amd64
+          name: native-pvedisk
           path: dist
-          merge-multiple: true
       - name: Package installer, licenses, and checksum manifest
         run: |
           cp scripts/install.sh dist/install.sh
           cp LICENSE dist/LICENSE
           cp third_party/guestfs/COPYING.LIB dist/COPYING.LIB
           cd dist
-          sha256sum pvedisk-linux-amd64-debian12 pvedisk-linux-amd64-debian13 install.sh LICENSE COPYING.LIB > SHA256SUMS
+          sha256sum pvedisk install.sh LICENSE COPYING.LIB > SHA256SUMS
           sha256sum --check SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
@@ -128,16 +123,12 @@ jobs:
         run: gh release create "$RELEASE_TAG" dist/* --verify-tag --title "$RELEASE_TAG" --generate-notes
 
   installation:
-    name: Clean Debian ${{ matrix.debian }} installation
+    name: Clean Debian 13 installation
     runs-on: ubuntu-24.04
     needs: artifacts
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        debian: ['12', '13']
     container:
-      image: debian:${{ matrix.debian }}
+      image: debian:13
     steps:
       - uses: actions/download-artifact@v4
         with:

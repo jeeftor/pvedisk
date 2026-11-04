@@ -7,6 +7,7 @@ default:
     - mitre-no-cui
 
 variables:
+  DEBIAN_VERSION: "13"
   CGO_ENABLED: "1"
   GOTOOLCHAIN: local
   GOMODCACHE: "$CI_PROJECT_DIR/.cache/go-mod"
@@ -15,11 +16,11 @@ variables:
   LIBGUESTFS_BACKEND_SETTINGS: force_tcg
 
 .native:
-  image: "debian:${DEBIAN_VERSION}"
+  image: debian:13
   timeout: 30m
   cache:
     key:
-      prefix: "go1.27.3-debian${DEBIAN_VERSION}"
+      prefix: go1.27.3-debian13
       files:
         - go.sum
     paths:
@@ -32,20 +33,13 @@ variables:
   script:
     - sh scripts/gitlab-build.sh build
   artifacts:
-    name: "pvedisk-debian${DEBIAN_VERSION}-${CI_COMMIT_SHORT_SHA}"
+    name: "pvedisk-debian13-${CI_COMMIT_SHORT_SHA}"
     expire_in: 30 days
     paths:
-      - "dist/debian${DEBIAN_VERSION}/"
-
-build-debian12:
-  extends: .build
-  variables:
-    DEBIAN_VERSION: "12"
+      - dist/
 
 build-debian13:
   extends: .build
-  variables:
-    DEBIAN_VERSION: "13"
 
 .integration:
   extends: .native
@@ -55,41 +49,21 @@ build-debian13:
 
 # These required checks need a Docker runner with CAP_SYS_ADMIN and /dev/fuse.
 # Their isolation preserves build artifacts if a runner cannot provide FUSE.
-integration-debian12:
-  extends: .integration
-  variables:
-    DEBIAN_VERSION: "12"
-  needs:
-    - job: build-debian12
-      artifacts: false
-
 integration-debian13:
   extends: .integration
-  variables:
-    DEBIAN_VERSION: "13"
   needs:
     - job: build-debian13
       artifacts: false
 
 .installation:
   stage: verify
-  image: "debian:${DEBIAN_VERSION}"
+  image: debian:13
   timeout: 20m
   script:
     - sh scripts/gitlab-build.sh installation
 
-installation-debian12:
-  extends: .installation
-  variables:
-    DEBIAN_VERSION: "12"
-  needs:
-    - job: build-debian12
-      artifacts: true
-
 installation-debian13:
   extends: .installation
-  variables:
-    DEBIAN_VERSION: "13"
   needs:
     - job: build-debian13
       artifacts: true

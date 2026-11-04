@@ -47,8 +47,8 @@ build() {
 
     version="0.1.0-dev+${CI_COMMIT_SHORT_SHA}"
     if [ -n "${CI_COMMIT_TAG:-}" ]; then version=$CI_COMMIT_TAG; fi
-    output="dist/debian${DEBIAN_VERSION}"
-    artifact="pvedisk-linux-amd64-debian${DEBIAN_VERSION}"
+    output=dist
+    artifact=pvedisk
     mkdir -p "$output"
     go build -trimpath -buildvcs=false \
         -ldflags "-X github.com/jeeftor/pvedisk/internal/cli.Version=$version" \
@@ -85,7 +85,7 @@ integration() {
 }
 
 installation() {
-    output="dist/debian${DEBIAN_VERSION}"
+    output=dist
     (cd "$output" && sha256sum --check SHA256SUMS)
     sh "$output/install.sh" --artifact-dir "$PWD/$output"
     /usr/local/bin/pvedisk --help
@@ -98,8 +98,8 @@ installation() {
 }
 
 case "${DEBIAN_VERSION:-}" in
-    12|13) ;;
-    *) echo 'Set DEBIAN_VERSION to 12 or 13 for your matching Debian container.' >&2; exit 2 ;;
+    13) ;;
+    *) echo 'Set DEBIAN_VERSION to 13 for your Debian 13 container.' >&2; exit 2 ;;
 esac
 case "${1:-}" in
     build) build ;;

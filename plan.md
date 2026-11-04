@@ -5,7 +5,7 @@
 - Create the project at ~/devel/pvedisk. That directory does not currently exist, and the current workspace contains no code to move.
 - Publish as jeeftor/pvedisk, public, with an MIT license for our code.
 - Implement in Go with direct libguestfs bindings, Cobra commands, Viper configuration, and log/slog.
-- Release raw amd64 Linux executables for Proxmox 8/Debian 12 and Proxmox 9/Debian 13, with checksums and an installer.
+- Release a raw amd64 Linux executable named pvedisk for Proxmox 9/Debian 13 only, with checksums and an installer.
 - The installer handles native runtime dependencies and binary installation. Site configuration happens afterward, on the destination host. No Go compiler or Python bindings are required.
 - Pin upstream-generated libguestfs bindings and preserve their license notices. Native libraries remain host dependencies; offline dependency bundles are outside version one.
 
@@ -70,6 +70,6 @@ The configured destination determines the layout:
 - Test first-run setup, cancellation, validation, configuration persistence, noninteractive setup, and destination-change restrictions.
 - Test lifecycle failures, conflicting operations, busy mounts, and interrupted-session recovery.
 - Run Go formatting, vetting, unit tests, and Linux disk-image integration tests.
-- Verify binaries and installation on both supported Debian versions.
+- Verify the binary and installation on Debian 13.
 - Validate real mounting, persisted edits, read-only enforcement, startup protection, and password recovery on a disposable Proxmox VM.
 - Include usage and recovery documentation, CI, and a help-first Makefile. Distinguish local/CI results from actual Proxmox acceptance.

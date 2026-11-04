@@ -6,7 +6,7 @@ usage() {
     cat <<'EOF'
 Usage: install.sh [--version vX.Y.Z] [--artifact-dir DIRECTORY]
 
-Install the Debian 12 or Debian 13 amd64 pvedisk binary and runtime packages.
+Install the Debian 13/Proxmox 9 amd64 pvedisk binary and runtime packages.
 The default download is the latest GitHub release. --artifact-dir installs
 from a local release directory containing the binary and SHA256SUMS.
 Run pvedisk setup afterward to choose your mount destination.
@@ -48,11 +48,11 @@ fi
 # shellcheck source=/dev/null
 . /etc/os-release
 case "${ID:-}:${VERSION_ID:-}" in
-    debian:12|debian:13) debian=$VERSION_ID ;;
-    *) echo 'You need Debian 12/Proxmox 8 or Debian 13/Proxmox 9.' >&2; exit 1 ;;
+    debian:13) ;;
+    *) echo 'You need Debian 13/Proxmox 9.' >&2; exit 1 ;;
 esac
 
-artifact="pvedisk-linux-amd64-debian${debian}"
+artifact=pvedisk
 workdir=$(mktemp -d)
 install_tmp=
 cleanup() {
@@ -87,11 +87,7 @@ awk -v name="$artifact" '$2 == name {print; count++} END {if (count != 1) exit 1
 (cd "$workdir" && sha256sum --check selected.sha256)
 
 apt-get update
-case "$debian" in
-    12) guestfs_runtime=libguestfs0 ;;
-    13) guestfs_runtime=libguestfs0t64 ;;
-esac
-set -- "$guestfs_runtime" libguestfs-tools libguestfs-xfs fuse3 qemu-system-x86 psmisc libcrypt1
+set -- libguestfs0t64 libguestfs-tools libguestfs-xfs fuse3 qemu-system-x86 psmisc libcrypt1
 # Your Proxmox kernel is sufficient; avoid installing a second kernel on a PVE host.
 kernel_found=false
 for kernel in /boot/vmlinuz-*; do
