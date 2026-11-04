@@ -148,6 +148,8 @@ jobs:
           sh dist/install.sh --artifact-dir "$PWD/dist"
           /usr/local/bin/pvedisk --help
           /usr/local/bin/pvedisk --version
-          ! command -v go
-          ! command -v gcc
+          if command -v go || command -v gcc; then
+            echo 'The runtime verification container unexpectedly contains a compiler.' >&2
+            exit 1
+          fi
           test ! -e /etc/pvedisk/config.yaml
