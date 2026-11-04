@@ -238,6 +238,7 @@ func newCommand(ops operations) *cobra.Command {
 	worker := vmCommand("_worker", "Internal detached session worker", func(cmd *cobra.Command, id int) error { return ops.worker(cmd.Context(), id) })
 	worker.Hidden = true
 	root.AddCommand(worker)
+	root.AddCommand(utilsCommand())
 	return root
 }
 
@@ -299,34 +300,7 @@ func isTerminal(cmd *cobra.Command) bool {
 }
 
 func readPassword(cmd *cobra.Command) ([]byte, error) {
-	input, ok := cmd.InOrStdin().(*os.File)
-	if !ok || !term.IsTerminal(int(input.Fd())) {
-		return nil, errors.New("you must use a terminal to enter your password")
-	}
-	fmt.Fprint(cmd.ErrOrStderr(), "Your new root password: ")
-	first, err := term.ReadPassword(int(input.Fd()))
-	fmt.Fprintln(cmd.ErrOrStderr())
-	if err != nil {
-		clear(first)
-		return nil, fmt.Errorf("read your password: %w", err)
-	}
-	fmt.Fprint(cmd.ErrOrStderr(), "Enter your password again: ")
-	second, err := term.ReadPassword(int(input.Fd()))
-	fmt.Fprintln(cmd.ErrOrStderr())
-	defer clear(second)
-	if err != nil {
-		clear(first)
-		return nil, fmt.Errorf("confirm your password: %w", err)
-	}
-	if len(first) == 0 || !bytes.Equal(first, second) {
-		clear(first)
-		return nil, errors.New("your passwords must match and cannot be empty")
-	}
-	if bytes.ContainsAny(first, "\r\n\x00") {
-		clear(first)
-		return nil, errors.New("your password cannot contain line breaks or a zero byte")
-	}
-	return first, nil
+	return readConfirmedPassword(cmd, "Your new root password: ")
 }
 
 // Keep the setup write behind the session lock so mount cannot start between the

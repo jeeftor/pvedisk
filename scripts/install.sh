@@ -91,7 +91,7 @@ case "$debian" in
     12) guestfs_runtime=libguestfs0 ;;
     13) guestfs_runtime=libguestfs0t64 ;;
 esac
-set -- "$guestfs_runtime" libguestfs-tools libguestfs-xfs fuse3 qemu-system-x86 psmisc
+set -- "$guestfs_runtime" libguestfs-tools libguestfs-xfs fuse3 qemu-system-x86 psmisc libcrypt1
 # Your Proxmox kernel is sufficient; avoid installing a second kernel on a PVE host.
 kernel_found=false
 for kernel in /boot/vmlinuz-*; do

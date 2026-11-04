@@ -3,21 +3,29 @@
 set -eu
 
 prepare_toolchain() {
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        ca-certificates curl git build-essential pkg-config libguestfs-dev shellcheck
-
-    # Scope your runner-provided certificate trust to this job and its downloads.
-    if [ -n "${CI_SERVER_TLS_CA_FILE:-}" ] && [ -r "$CI_SERVER_TLS_CA_FILE" ]; then
-        mkdir -p "$CI_PROJECT_DIR/.cache"
-        ca_bundle="$CI_PROJECT_DIR/.cache/ci-ca.pem"
-        cat /etc/ssl/certs/ca-certificates.crt "$CI_SERVER_TLS_CA_FILE" > "$ca_bundle"
-        export SSL_CERT_FILE="$ca_bundle" CURL_CA_BUNDLE="$ca_bundle" GIT_SSL_CAINFO="$ca_bundle"
-    fi
-
     tool_dir=$(mktemp -d)
     trap 'rm -rf "$tool_dir"' 0
     trap 'exit 1' HUP INT TERM
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates curl git build-essential pkg-config libguestfs-dev libcrypt-dev shellcheck
+
+    # Preserve your existing trust inputs while adding job-provided CA chains.
+    ca_bundle="$tool_dir/ci-ca.pem"
+    cat /etc/ssl/certs/ca-certificates.crt > "$ca_bundle"
+    custom_ca=false
+    for ca_source in "${SSL_CERT_FILE:-}" "${CURL_CA_BUNDLE:-}" "${GIT_SSL_CAINFO:-}" \
+        "${CI_SERVER_TLS_CA_FILE:-}" "${PVEDISK_CA_BUNDLE:-}"; do
+        if [ -n "$ca_source" ] && [ -f "$ca_source" ] && [ -r "$ca_source" ]; then
+            cat "$ca_source" >> "$ca_bundle"
+            printf '\n' >> "$ca_bundle"
+            custom_ca=true
+        fi
+    done
+    if [ "$custom_ca" = true ]; then
+        export SSL_CERT_FILE="$ca_bundle" CURL_CA_BUNDLE="$ca_bundle" GIT_SSL_CAINFO="$ca_bundle"
+    fi
+
     curl --fail --location --proto '=https' --tlsv1.2 \
         https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o "$tool_dir/go.tar.gz"
     printf '%s  %s\n' \

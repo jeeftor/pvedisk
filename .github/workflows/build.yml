@@ -32,7 +32,7 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            ca-certificates curl git build-essential pkg-config libguestfs-dev \
+            ca-certificates curl git build-essential pkg-config libguestfs-dev libcrypt-dev \
             libguestfs-tools libguestfs-xfs fuse3 qemu-system-x86 linux-image-amd64 shellcheck
           if [ ! -e /dev/fuse ]; then mknod /dev/fuse c 10 229; fi
       - uses: actions/checkout@v4

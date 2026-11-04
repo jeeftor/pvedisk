@@ -95,6 +95,26 @@ Password reset requires unmounted disks and prompts twice without echo. It passe
 the password to `virt-customize` through a protected temporary file and never
 includes it in command arguments or logs.
 
+## Offline password helpers
+
+```console
+pvedisk utils
+pvedisk utils verify-password --shadow /your/repair-directory/vm406/etc/shadow
+pvedisk utils hash-password
+```
+
+`verify-password` prompts once without echo and compares your known password
+against the selected shadow entry. The account defaults to `root`; use
+`--user ACCOUNT` to select another entry. It reports a match or mismatch without
+printing your password or the stored hash. Empty, locked, or malformed entries
+produce a distinct error. Verification does not attempt a login or change files.
+
+`hash-password` prompts twice without echo and prints a salted yescrypt hash alone
+on standard output. It does not install that hash or reset a guest password. Both
+helpers use native Linux libcrypt and work offline without `mkpasswd` or Python's
+`crypt` module. They do not require site configuration or perform VM operations;
+you must already have access to the shadow file you select.
+
 ## Recover an interrupted session
 
 ```console

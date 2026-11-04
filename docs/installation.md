@@ -60,10 +60,14 @@ integration job explicitly; the native build artifacts remain downloadable.
 These disk-image checks do not establish disposable-Proxmox acceptance.
 
 The pipeline selects runners tagged `mitre-no-cui`. Go downloads verify the
-pinned upstream SHA256 checksum. When your runner supplies
-`CI_SERVER_TLS_CA_FILE`, the build job combines that chain with Debian's public
-certificate roots for its own download and dependency processes. It does not
-disable TLS verification or change your workstation's trust settings.
+pinned upstream SHA256 checksum. If your network requires an additional trusted
+certificate chain, set the project's `PVEDISK_CA_BUNDLE` CI variable to type
+**File**, with the trusted PEM certificates as its value. The build job combines
+that file, the runner's readable `CI_SERVER_TLS_CA_FILE`, and existing readable
+`SSL_CERT_FILE`, `CURL_CA_BUNDLE`, and `GIT_SSL_CAINFO` files with Debian's public
+certificate roots. The combined bundle applies only to that job's downloads and
+dependency processes and is removed afterward. The job keeps TLS verification
+enabled and does not change your workstation's trust settings.
 
 ## From a tagged release
 
