@@ -166,7 +166,7 @@ func TestStatusListsActualMountsInsteadOfAssumingRecordedPhase(t *testing.T) {
 	description.Observation = session.Observation{Status: "not-mounted", WorkerKnown: true, MountsKnown: true}
 	ops.listSessions = func() ([]session.Description, error) { return []session.Description{description}, nil }
 	output, err := execute(ops, "status")
-	for _, want := range []string{"ACTUAL MOUNTS", "RECORDED PHASE", "not-mounted", "mounted", "pvedisk recover 400"} {
+	for _, want := range []string{"DISKS", "SAVED STEP", "not mounted", "mounted", "pvedisk recover 400"} {
 		if err != nil || !strings.Contains(output, want) {
 			t.Fatalf("missing %q output=%q err=%v", want, output, err)
 		}
@@ -187,5 +187,65 @@ func TestEmptyStatusIsReadableAndEmptyJSONIsArray(t *testing.T) {
 	output, err = execute(ops, "status", "--json")
 	if err != nil || strings.TrimSpace(output) != "[]" {
 		t.Fatalf("output=%q err=%v", output, err)
+	}
+}
+
+func TestStatusDistinguishesDeletedOrMovedVMFromSavedMountedStep(t *testing.T) {
+	ops := testOperations()
+	description := mountedDescription(400)
+	description.State.Error = "last cleanup could not release a disk opened by process 1234; " + strings.Repeat("detail ", 30)
+	description.Observation = session.Observation{Status: "not-mounted", MountsKnown: true, WorkerKnown: true}
+	ops.listSessions = func() ([]session.Description, error) { return []session.Description{description}, nil }
+	ops.listVMs = func(context.Context) ([]proxmox.VM, error) { return nil, nil }
+	output, err := execute(ops, "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Your mounted disks and sessions awaiting cleanup", "not mounted", "SAVED STEP", "Saved root directory:", "VM not found on this node; it may have been deleted or moved.", "Saved error:", "earlier work, not current mounts"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("missing %q in %q", want, output)
+		}
+	}
+	if strings.Contains(output, "Mounted root:") {
+		t.Fatal("saved path described as mounted")
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, "400 ") {
+			if len(line) > 80 || strings.Contains(line, "last cleanup") {
+				t.Fatalf("details inflated summary table: %q", line)
+			}
+		}
+	}
+}
+
+func TestStatusInventoryFailureDoesNotClaimVMIsDeleted(t *testing.T) {
+	ops := testOperations()
+	ops.listSessions = func() ([]session.Description, error) { return []session.Description{mountedDescription(400)}, nil }
+	ops.listVMs = func(context.Context) ([]proxmox.VM, error) { return nil, os.ErrPermission }
+	output, err := execute(ops, "status")
+	if err != nil || !strings.Contains(output, "VM availability is unknown") || !strings.Contains(output, "Mounted root:") || strings.Contains(output, "deleted or moved") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+}
+
+func TestRecoveryOfAbsentVMNeverSuggestsStartingIt(t *testing.T) {
+	ops := testOperations()
+	ops.recover = func(context.Context, int) error { return nil }
+	ops.listVMs = func(context.Context) ([]proxmox.VM, error) { return nil, nil }
+	output, err := execute(ops, "recover", "400")
+	if err != nil || !strings.Contains(output, "Your cleanup for VM 400 is complete.") || strings.Contains(output, "qm start") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+}
+
+func TestUnmountOfMissingOrUnknownVMDoesNotSuggestStart(t *testing.T) {
+	for _, inventoryErr := range []error{nil, os.ErrPermission} {
+		ops := testOperations()
+		ops.unmount = func(context.Context, int) error { return nil }
+		ops.listVMs = func(context.Context) ([]proxmox.VM, error) { return nil, inventoryErr }
+		output, err := execute(ops, "unmount", "400")
+		if err != nil || !strings.Contains(output, "Your cleanup for VM 400 is complete.") || strings.Contains(output, "qm start") {
+			t.Fatalf("output=%q err=%v", output, err)
+		}
 	}
 }

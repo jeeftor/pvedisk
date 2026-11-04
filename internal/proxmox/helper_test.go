@@ -226,3 +226,108 @@ func TestEmbeddedHelperListsOnlyLocalMetadata(t *testing.T) {
 		t.Fatalf("empty inventory: %v: %s", err, out)
 	}
 }
+
+func TestEmbeddedHelperReleasesDeletedVM(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("ownership tests require root; run in Debian CI containers")
+	}
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("Perl is unavailable")
+	}
+	for _, scenario := range []string{"deleted", "empty-cluster", "repeat-release", "wrong-token", "invalid-marker", "unsafe-directory", "remote-config", "recreated", "running", "cluster-unmounted", "no-quorum", "cluster-error", "bad-inventory", "config-parse-error"} {
+		t.Run(scenario, func(t *testing.T) {
+			dir := t.TempDir()
+			base := filepath.Join(dir, "state")
+			configPath := filepath.Join(dir, "vm.json")
+			ownerPath := filepath.Join(base, "locks", "400.json")
+			diskPath := filepath.Join(dir, "disk")
+			for path, data := range map[string]string{configPath: `{"scsi0":{"file":"local:disk","format":"raw"}}`, diskPath: ""} {
+				if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			token := "0123456789abcdef"
+			extraEnv := []string{}
+			script := strings.ReplaceAll(helper, "/var/lib/pvedisk", base)
+			run := func(operation string) ([]byte, error) {
+				cmd := exec.Command("perl", "-Itestdata", "-e", script, "--", operation, "400", token)
+				cmd.Env = append(os.Environ(), "PVEDISK_TEST_CONFIG="+configPath, "PVEDISK_TEST_DISK="+diskPath)
+				cmd.Env = append(cmd.Env, extraEnv...)
+				return cmd.CombinedOutput()
+			}
+			if out, err := run("acquire"); err != nil {
+				t.Fatalf("acquire: %v: %s", err, out)
+			}
+			if err := os.Remove(configPath); err != nil {
+				t.Fatal(err)
+			}
+			switch scenario {
+			case "wrong-token":
+				token = "fedcba9876543210"
+			case "empty-cluster":
+				extraEnv = []string{"PVEDISK_TEST_EMPTY_CLUSTER=1"}
+			case "invalid-marker":
+				if err := os.WriteFile(ownerPath, []byte(`{"token":"0123456789abcdef"}`), 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "unsafe-directory":
+				if err := os.Chmod(filepath.Dir(ownerPath), 0755); err != nil {
+					t.Fatal(err)
+				}
+			case "remote-config":
+				extraEnv = []string{"PVEDISK_TEST_REMOTE=1"}
+			case "recreated":
+				extraEnv = []string{"PVEDISK_TEST_RECREATE=1"}
+			case "running":
+				extraEnv = []string{"PVEDISK_TEST_RUNNING=1"}
+			case "cluster-unmounted":
+				extraEnv = []string{"PVEDISK_TEST_CFS_UNMOUNTED=1"}
+			case "no-quorum":
+				extraEnv = []string{"PVEDISK_TEST_NO_QUORUM=1"}
+			case "cluster-error":
+				extraEnv = []string{"PVEDISK_TEST_CFS_ERROR=1"}
+			case "bad-inventory":
+				extraEnv = []string{"PVEDISK_TEST_BAD_INVENTORY=1"}
+			case "config-parse-error":
+				if err := os.WriteFile(configPath, []byte("broken configuration"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := os.ReadFile(ownerPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := run("release")
+			if scenario == "deleted" || scenario == "empty-cluster" || scenario == "repeat-release" {
+				if err != nil {
+					t.Fatalf("release deleted VM: %v: %s", err, out)
+				}
+				if _, err := os.Stat(ownerPath); !os.IsNotExist(err) {
+					t.Fatalf("owned marker remains: %v", err)
+				}
+				if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+					t.Fatalf("deleted configuration was recreated: %v", err)
+				}
+				if scenario == "repeat-release" {
+					if out, err := run("release"); err != nil {
+						t.Fatalf("repeat deleted VM release: %v: %s", err, out)
+					}
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("unsafe release accepted: %s", out)
+			}
+			after, err := os.ReadFile(ownerPath)
+			if err != nil || string(after) != string(before) {
+				t.Fatalf("uncertain owner marker changed: %v", err)
+			}
+			if scenario == "recreated" {
+				data, err := os.ReadFile(configPath)
+				if err != nil || string(data) != `{"name":"recreated","lock":"backup"}` {
+					t.Fatalf("recreated VM configuration changed: %s: %v", data, err)
+				}
+			}
+		})
+	}
+}

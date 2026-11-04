@@ -170,7 +170,7 @@ func TestUnmountAndRecoveryIgnoreDamagedConfiguration(t *testing.T) {
 			run := func(_ context.Context, id int) error { called = id == 400; return nil }
 			ops.unmount, ops.recover = run, run
 			output, err := execute(ops, action, "400")
-			if err != nil || !called || !strings.Contains(output, "You can now run: qm start 400") {
+			if err != nil || !called || !strings.Contains(output, "Your cleanup for VM 400 is complete.") || (action == "unmount" && !strings.Contains(output, "You can now run: qm start 400")) || (action == "recover" && strings.Contains(output, "qm start")) {
 				t.Fatalf("called=%v output=%q err=%v", called, output, err)
 			}
 		})

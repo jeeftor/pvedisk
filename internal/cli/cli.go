@@ -196,7 +196,7 @@ func newCommand(ops operations) *cobra.Command {
 		return runMount(cmd, args)
 	}
 	root.AddCommand(mount)
-	status := vmCommand("status", "Show your repair sessions and actual mount observations", func(cmd *cobra.Command, id int) error {
+	status := vmCommand("status", "Show your mounted disks and sessions awaiting cleanup", func(cmd *cobra.Command, id int) error {
 		description, err := ops.describe(id)
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("your VM %d has no recorded pvedisk repair session. Mounts created by other tools are not tracked. To start a session, run: pvedisk mount %d", id, id)
@@ -206,6 +206,7 @@ func newCommand(ops operations) *cobra.Command {
 		}
 		return writeStatus(cmd.OutOrStdout(), description)
 	})
+	status.Long = "Show your mounted disks and sessions awaiting cleanup. A saved session can remain after its mounts disappear. With a VMID, print JSON containing your saved session and checks of its current mounts and worker. The summary checks VM availability against this node only."
 	var statusJSON bool
 	status.Flags().BoolVar(&statusJSON, "json", false, "Print your session summary as JSON")
 	status.Use = "status [VMID]"
@@ -222,7 +223,8 @@ func newCommand(ops operations) *cobra.Command {
 		if statusJSON {
 			return writeStatus(cmd.OutOrStdout(), sessions)
 		}
-		return printSessions(cmd.OutOrStdout(), sessions)
+		vms, inventoryErr := ops.listVMs(cmd.Context())
+		return printSessions(cmd.OutOrStdout(), sessions, vms, inventoryErr)
 	}
 	root.AddCommand(status)
 	for _, action := range []struct {
@@ -237,7 +239,18 @@ func newCommand(ops operations) *cobra.Command {
 				return err
 			}
 			p := outputPalette(cmd.OutOrStdout())
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.success.Render("You can now run:"), p.path.Render(fmt.Sprintf("qm start %d", id)))
+			fmt.Fprintln(cmd.OutOrStdout(), p.success.Render(fmt.Sprintf("Your cleanup for VM %d is complete.", id)))
+			if action.name == "unmount" {
+				vms, err := ops.listVMs(cmd.Context())
+				if err == nil {
+					for _, vm := range vms {
+						if vm.ID == id {
+							fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.success.Render("You can now run:"), p.path.Render(fmt.Sprintf("qm start %d", id)))
+							break
+						}
+					}
+				}
+			}
 			return nil
 		})
 		if action.name == "unmount" {

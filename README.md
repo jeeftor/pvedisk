@@ -89,8 +89,14 @@ it confirms the access mode, guest root, extras directory, discovered filesystem
 and the unmount command. On failure, it gives you the command to inspect the
 recorded session. `status` reports when no pvedisk session is recorded; it does
 not track mounts created by other tools or list every Proxmox VM.
-Bare `pvedisk status` lists recorded repair sessions and their observed mount
-state. `pvedisk status VMID` shows syntax-colored, indented JSON containing the
+Bare `pvedisk status` shows your mounted disks and saved sessions awaiting
+cleanup. The **DISKS** column reports current mounts; **SAVED STEP** and saved
+errors describe earlier work. A saved `mounted` step does not mean disks are
+still mounted. Details below the compact table distinguish mounted roots from
+saved directories. If the local VM list is available, a missing VM is labeled
+as not found on this node: it may have been deleted or moved. If that check
+fails, VM availability stays unknown and your saved sessions remain visible.
+`pvedisk status VMID` shows syntax-colored, indented JSON containing the
 recorded state and current observations, including public/internal mounts and
 worker liveness. `pvedisk status --json` returns the full session list as JSON.
 Missing workers, partial mounts, conflicting ownership, and damaged records are
@@ -174,7 +180,9 @@ Close processes using the repair tree and retry cleanup. Never use lazy unmount,
 [recovery](docs/recovery.md) for the reconciliation procedure.
 
 You cannot change the mount destination while active or unresolved sessions
-exist. A successful cleanup prints the command you can run to start your guest.
+exist. Recovery confirms cleanup without suggesting that you start a possibly
+deleted or moved VM. Unmount prints a start command only when your VM is still
+listed on this node.
 Successful cleanup removes the directories created for that session, its socket,
 log, and state file. Your configured mount root remains. Unexpected files or
 replaced directories stop cleanup before the startup lock is released.

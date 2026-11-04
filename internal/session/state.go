@@ -27,24 +27,25 @@ type Identity struct {
 
 // State records the repair intent before any protection or disk access begins.
 type State struct {
-	VMID                int                 `json:"vmid"`
-	Token               string              `json:"token"`
-	Phase               string              `json:"phase"`
-	Error               string              `json:"error,omitempty"`
-	Root                string              `json:"root"`
-	Public              string              `json:"public"`
-	Extras              string              `json:"extras"`
-	Staging             string              `json:"staging"`
-	ReadOnly            bool                `json:"read_only"`
-	Worker              Identity            `json:"worker"`
-	Appliance           Identity            `json:"appliance"`
-	Disks               []proxmox.Disk      `json:"disks"`
-	Inventory           appliance.Inventory `json:"inventory"`
-	ViewsCreated        bool                `json:"views_created"`
-	CreatedPaths        []string            `json:"created_paths,omitempty"`
-	PasswordFile        string              `json:"password_file,omitempty"`
-	ProtectionAttempted bool                `json:"protection_attempted"`
-	FuseStopped         bool                `json:"fuse_stopped"`
+	VMID                int                     `json:"vmid"`
+	Token               string                  `json:"token"`
+	Phase               string                  `json:"phase"`
+	Error               string                  `json:"error,omitempty"`
+	Root                string                  `json:"root"`
+	Public              string                  `json:"public"`
+	Extras              string                  `json:"extras"`
+	Staging             string                  `json:"staging"`
+	ReadOnly            bool                    `json:"read_only"`
+	Worker              Identity                `json:"worker"`
+	Appliance           Identity                `json:"appliance"`
+	Disks               []proxmox.Disk          `json:"disks"`
+	DiskIdentities      map[string]DiskIdentity `json:"disk_identities,omitempty"`
+	Inventory           appliance.Inventory     `json:"inventory"`
+	ViewsCreated        bool                    `json:"views_created"`
+	CreatedPaths        []string                `json:"created_paths,omitempty"`
+	PasswordFile        string                  `json:"password_file,omitempty"`
+	ProtectionAttempted bool                    `json:"protection_attempted"`
+	FuseStopped         bool                    `json:"fuse_stopped"`
 }
 
 // Manager coordinates configuration changes and repair operations.
@@ -194,6 +195,18 @@ func (m *Manager) validatePaths(s *State) error {
 	for _, disk := range s.Disks {
 		if !filepath.IsAbs(disk.Path) || disk.Format == "" {
 			return errors.New("invalid recorded disk")
+		}
+	}
+	for path, identity := range s.DiskIdentities {
+		found := false
+		for _, disk := range s.Disks {
+			if disk.Path == path {
+				found = true
+				break
+			}
+		}
+		if !found || identity.Inode == 0 || (identity.Kind != "file" && identity.Kind != "block") {
+			return errors.New("invalid recorded disk identity")
 		}
 	}
 	return nil

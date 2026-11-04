@@ -6,6 +6,7 @@ use JSON::PP;
 use Fcntl qw(O_WRONLY O_CREAT O_EXCL O_RDONLY O_NOFOLLOW);
 use IO::Handle;
 use Digest::SHA qw(sha256_hex);
+use PVE::Cluster;
 use PVE::QemuConfig;
 use PVE::QemuServer;
 use PVE::Storage;
@@ -19,6 +20,7 @@ if ($operation eq 'doctor') { print "[]\n"; exit 0; }
 if ($operation eq 'list') {
     # config_list restricts the cluster inventory to local QEMU VMs. Full status
     # asks QMP whether a running process is actually paused or suspended.
+    PVE::Cluster::cfs_update(1);
     my $local = PVE::QemuServer::config_list();
     my $statuses = PVE::QemuServer::vmstatus(undef, 1);
     die "unsupported local VM inventory\n" if ref($local) ne 'HASH' || ref($statuses) ne 'HASH';
@@ -115,23 +117,51 @@ sub secure_owner_directory {
     }
 }
 
+sub config_is_absent {
+    my $path = PVE::QemuConfig->config_file($vmid);
+    my @st = lstat($path);
+    return 0 if @st;
+    die "cannot establish VM configuration absence: $!\n" if !$!{ENOENT};
+    # A local missing file may mean migration or an unavailable pmxcfs rather
+    # than deletion. Require a fresh, healthy cluster inventory before cleanup.
+    PVE::Cluster::check_cfs_is_mounted();
+    PVE::Cluster::check_cfs_quorum();
+    PVE::Cluster::cfs_update(1);
+    my $vmlist = PVE::Cluster::get_vmlist();
+    die "cannot establish cluster-wide VM configuration absence\n" if ref($vmlist) ne 'HASH' || !defined($vmlist->{version}) || $vmlist->{version} !~ /\A[0-9]+\z/ || (exists($vmlist->{ids}) && ref($vmlist->{ids}) ne 'HASH');
+    my $ids = $vmlist->{ids} // {};
+    die "VM configuration exists on another node; ownership retained\n" if exists $ids->{$vmid};
+    @st = lstat($path);
+    return 0 if @st;
+    die "cannot recheck VM configuration absence: $!\n" if !$!{ENOENT};
+    die "VM unexpectedly running; ownership retained\n" if PVE::QemuServer::check_running($vmid, 1);
+    return 1;
+}
+
 my $result = [];
 PVE::QemuConfig->lock_config($vmid, sub {
-    my $conf = PVE::QemuConfig->load_config($vmid);
+    my $absent = $operation eq 'release' && config_is_absent();
+    my $conf = $absent ? undef : PVE::QemuConfig->load_config($vmid);
     if ($operation eq 'release') {
         secure_owner_directory();
         my $fh;
         if (!sysopen($fh, $owner_path, O_RDONLY | O_NOFOLLOW)) {
             # A failed acquisition or completed release has no protection to
             # remove. Any existing Proxmox lock still requires ownership proof.
-            return if $!{ENOENT} && !defined($conf->{lock}) && !PVE::QemuServer::check_running($vmid);
+            return if $!{ENOENT} && ($absent ? config_is_absent() : !defined($conf->{lock}) && !PVE::QemuServer::check_running($vmid));
             die "ownership uncertain; lock retained: $!\n";
         }
         my @st = stat($fh);
-        die "unsafe ownership file; lock retained\n" if !@st || $st[4] != 0 || ($st[2] & 0077);
+        die "unsafe ownership file; lock retained\n" if !@st || !-f _ || $st[4] != 0 || ($st[2] & 0077);
         local $/;
         my $owner = decode_json(<$fh>);
         close($fh) or die "close ownership file: $!\n";
+        if ($absent) {
+            die "ownership mismatch; record retained\n" if ref($owner) ne 'HASH' || ($owner->{token} // '') ne $token || ($owner->{digest} // '') !~ /\A[0-9a-f]{64}\z/;
+            die "VM configuration was recreated; ownership retained\n" if !config_is_absent();
+            unlink($owner_path) or die "remove deleted VM ownership record: $!\n";
+            return;
+        }
         if (!defined($conf->{lock}) && $owner->{token} eq $token) {
             my %intended = (%$conf, lock => 'create');
             die "interrupted acquisition configuration changed\n" if $owner->{digest} ne config_fingerprint(\%intended);

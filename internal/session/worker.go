@@ -48,6 +48,10 @@ func (m *Manager) Worker(ctx context.Context, id int) error {
 		if err != nil {
 			return m.fail(s, err)
 		}
+		s.DiskIdentities, err = captureDiskIdentities(s.Disks)
+		if err != nil {
+			return m.fail(s, err)
+		}
 		s.Phase = "stopping"
 		if err = m.save(s); err != nil {
 			return err
@@ -60,7 +64,12 @@ func (m *Manager) Worker(ctx context.Context, id int) error {
 		if err = m.save(s); err != nil {
 			return err
 		}
-		s.Disks, err = p.Acquire(ctx, id, s.Token)
+		protectedDisks, err := p.Acquire(ctx, id, s.Token)
+		if err != nil {
+			return m.fail(s, err)
+		}
+		s.Disks = protectedDisks
+		s.DiskIdentities, err = captureDiskIdentities(s.Disks)
 		if err != nil {
 			return m.fail(s, err)
 		}

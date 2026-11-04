@@ -209,7 +209,7 @@ func (m *Manager) Recover(ctx context.Context, id int) error {
 		if err := recoverMounts(s); err != nil {
 			return err
 		}
-		if err := assertDisksUnused(s.Disks); err != nil {
+		if err := assertRecoveryDisksUnused(s); err != nil {
 			return err
 		}
 		if s.PasswordFile != "" {
@@ -260,6 +260,10 @@ func (m *Manager) ResetRoot(ctx context.Context, id int, configPath string, pass
 			return m.fail(s, err)
 		}
 		s.Disks = disks
+		s.DiskIdentities, err = captureDiskIdentities(disks)
+		if err != nil {
+			return m.fail(s, err)
+		}
 		if err = m.save(s); err != nil {
 			return err
 		}
@@ -276,6 +280,10 @@ func (m *Manager) ResetRoot(ctx context.Context, id int, configPath string, pass
 			return m.fail(s, err)
 		}
 		s.Disks = disks
+		s.DiskIdentities, err = captureDiskIdentities(disks)
+		if err != nil {
+			return m.fail(s, err)
+		}
 		s.Phase = "password"
 		if err = m.save(s); err != nil {
 			return err

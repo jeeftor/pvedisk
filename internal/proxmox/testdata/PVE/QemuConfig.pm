@@ -12,6 +12,7 @@ sub load_config {
     my $conf = test_configs();
     return $ENV{PVEDISK_TEST_LIST} ? $conf->{$vmid} : $conf;
 }
+sub config_file { return $ENV{PVEDISK_TEST_CONFIG}; }
 sub write_config {
     die 'listing must not write configuration' if $ENV{PVEDISK_TEST_LIST};
     my ($class, $vmid, $conf) = @_;

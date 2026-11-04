@@ -21,6 +21,56 @@ func kernelDisksUnused(disks []proxmox.Disk) error {
 	return kernelDisksUnusedAt(disks, "/sys", "/proc")
 }
 
+// kernelRecordedDiskUnusedAt checks the preserved identity even when the disk
+// path has disappeared. Missing paths alone never prove a disk is unused.
+func kernelRecordedDiskUnusedAt(path string, identity DiskIdentity, sysRoot, procRoot string) error {
+	blocks, err := readKernelBlocks(sysRoot)
+	if err != nil {
+		return err
+	}
+	mounted, err := readKernelMounts(procRoot)
+	if err != nil {
+		return err
+	}
+	swaps, err := readKernelSwaps(procRoot, mounted)
+	if err != nil {
+		return err
+	}
+	if identity.Kind == "block" {
+		number := fmt.Sprintf("%d:%d", unix.Major(identity.BlockDevice), unix.Minor(identity.BlockDevice))
+		if mounted[number] {
+			return fmt.Errorf("your recorded disk %s is mounted or active swap on your host; protection is retained", path)
+		}
+		for _, block := range blocks {
+			if block.number == number {
+				if err := checkKernelBlock(number, blocks, mounted); err != nil {
+					return fmt.Errorf("your recorded disk %s: %w", path, err)
+				}
+				break
+			}
+		}
+		return nil
+	}
+	for _, swap := range swaps {
+		if matchesDiskIdentity(swap, identity) {
+			return fmt.Errorf("your recorded disk %s is active swap; protection is retained", path)
+		}
+	}
+	for _, block := range blocks {
+		if block.backing == "" {
+			continue
+		}
+		info, err := os.Stat(block.backing)
+		if err != nil {
+			return fmt.Errorf("cannot reconcile loop backing file %s: %w", block.backing, err)
+		}
+		if matchesDiskIdentity(info, identity) {
+			return fmt.Errorf("your recorded disk %s has active loop mapping %s; protection is retained", path, block.name)
+		}
+	}
+	return nil
+}
+
 type kernelBlock struct {
 	name, number, location string
 	holders                []string
