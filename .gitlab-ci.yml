@@ -4,7 +4,7 @@ stages:
 
 default:
   tags:
-    - mitre-no-cui
+    - mitre-no-cui-prd
 
 variables:
   DEBIAN_VERSION: "13"
