@@ -35,8 +35,8 @@ func TestIntentConflictAndDestinationChange(t *testing.T) {
 	if err != nil || !active {
 		t.Fatalf("active=%v err=%v", active, err)
 	}
-	if _, err := m.intent(400, root, false); err == nil {
-		t.Fatal("conflicting session accepted")
+	if _, err := m.intent(400, root, false); !errors.Is(err, ErrSessionExists) {
+		t.Fatalf("conflicting session did not report its recoverable cause: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(root, "vm400")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("intent unexpectedly changed public destination")
@@ -56,6 +56,16 @@ func TestOccupiedDestinationUntouched(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal("occupied directory changed")
+	}
+}
+
+func TestIntentInspectionFailureDoesNotOfferRecovery(t *testing.T) {
+	m := &Manager{root: filepath.Join(t.TempDir(), "not-a-directory")}
+	if err := os.WriteFile(m.root, []byte("unrelated data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.intent(400, t.TempDir(), false); err == nil || errors.Is(err, ErrSessionExists) || !strings.Contains(err.Error(), "inspect your repair session") {
+		t.Fatalf("inspection failure misreported as a recoverable session: %v", err)
 	}
 }
 

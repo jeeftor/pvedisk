@@ -21,12 +21,17 @@ import (
 	"github.com/jeeftor/pvedisk/internal/proxmox"
 )
 
+// ErrSessionExists means a recorded repair session must be cleaned up before mounting.
+var ErrSessionExists = errors.New("a repair session already exists; inspect status and use unmount or recover")
+
 func (m *Manager) intent(id int, root string, ro bool) (*State, error) {
 	if err := validID(id); err != nil {
 		return nil, err
 	}
-	if _, err := os.Lstat(m.statePath(id)); !errors.Is(err, os.ErrNotExist) {
-		return nil, errors.New("a repair session already exists; inspect status and use unmount or recover")
+	if _, err := os.Lstat(m.statePath(id)); err == nil {
+		return nil, ErrSessionExists
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect your repair session: %w", err)
 	}
 	canonical, err := filepath.EvalSymlinks(root)
 	if err != nil {

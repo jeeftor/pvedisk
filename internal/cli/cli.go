@@ -135,7 +135,7 @@ func newCommand(ops operations) *cobra.Command {
 			return err
 		}
 		started := time.Now()
-		if err := ops.mount(cmd.Context(), id, configPath, readOnly, func(phase string) {
+		if err := mountWithRecoveryPrompt(cmd, ops, id, configPath, readOnly, func(phase string) {
 			if message := mountPhaseMessage(phase); message != "" {
 				p := outputPalette(cmd.OutOrStdout())
 				fmt.Fprintln(cmd.OutOrStdout(), mountProgress(p, id, phase, message, time.Since(started)))

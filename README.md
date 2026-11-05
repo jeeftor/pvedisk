@@ -80,6 +80,13 @@ pvedisk unmount 400
 qm start 400
 ```
 
+If your VM already has a saved repair session, an interactive `mount` offers to
+recover it and retry mounting. The confirmation defaults to **No**. Recovery may
+unmount your existing repair mounts and must pass the normal ownership and disk
+safety checks before mounting is retried once, with your original options.
+Other mount errors do not offer automatic recovery. Without a terminal, the
+command returns the error; explicitly run `pvedisk recover VMID` before retrying.
+
 When you omit the VM ID, `mount` lists the local host's VMs, shows their state
 and repair availability, and prompts for an eligible ID in a terminal. Scripts
 must provide the ID explicitly. Existing VM destination paths are refused even when
