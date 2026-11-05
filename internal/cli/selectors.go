@@ -2,13 +2,11 @@ package cli
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"unicode"
 
 	"github.com/jeeftor/pvedisk/internal/proxmox"
@@ -214,26 +212,6 @@ func promptVMID(cmd *cobra.Command, eligible map[int]bool) (int, error) {
 }
 
 func printTable(output io.Writer, title string, headers []string, rows [][]string) error {
-	p := outputPalette(output)
-	fmt.Fprintln(output, p.title.Render(title))
-	var table bytes.Buffer
-	w := tabwriter.NewWriter(&table, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, strings.Join(headers, "\t"))
-	for _, row := range rows {
-		clean := make([]string, len(row))
-		for index, cell := range row {
-			clean[index] = cleanDisplay(cell)
-		}
-		fmt.Fprintln(w, strings.Join(clean, "\t"))
-	}
-	if err := w.Flush(); err != nil {
-		return err
-	}
-	header, body, _ := strings.Cut(table.String(), "\n")
-	_, err := fmt.Fprintln(output, p.label.Render(header))
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprint(output, body)
+	_, err := fmt.Fprint(output, outputPalette(output).table(title, headers, rows))
 	return err
 }

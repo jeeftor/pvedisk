@@ -109,10 +109,14 @@ Use `pvedisk ps` for a compact list of running mount workers, including their VM
 IDs, process IDs, read-only or writable modes, current mount status, and saved
 mount paths. Startup and failed workers remain listed while their process
 identities are confirmed alive; a listed worker does not by itself mean its
-disks are mounted. `pvedisk ps --json` prints only those public details as plain
-JSON. Inactive, unknown, or unreadable worker records produce a reminder to use
-`pvedisk status`, because mounts can need cleanup after their worker exits. That
-reminder goes to standard error with `--json`. Neither form loads site
+disks are mounted. The **MOUNTS** column reports current mounts. Terminal tables
+color your VM IDs, process IDs, paths, access modes, and mount states; writable
+mode is yellow and read-only mode is green. `pvedisk ps --json` prints only those
+public details as plain JSON. Saved sessions without a running worker are
+counted separately from records whose worker could not be checked. Both produce
+a reminder to use `pvedisk status`, because disks may still be mounted and need
+cleanup after their worker exits. That reminder goes to standard error with
+`--json`. Neither form loads site
 configuration or queries Proxmox VM inventory.
 Missing workers, partial mounts, conflicting ownership, and damaged records are
 shown explicitly. Only pvedisk sessions are tracked; mounts from other tools are

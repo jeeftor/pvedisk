@@ -17,6 +17,41 @@ import (
 
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
+func TestTableColorsKeepColumnsAndValuesUnchanged(t *testing.T) {
+	headers := []string{"VMID", "PID", "MODE", "MOUNTS", "PATH"}
+	rows := [][]string{
+		{"407", "2808155", "read/write", "mounted", "/vault/修復/vm407"},
+		{"408", "123", "read-only", "partly mounted", "/vault/temp-mount/vm408"},
+	}
+	p := newPalette(io.Discard, true)
+	colored := p.table("Your running pvedisk workers", headers, rows)
+	plain := newPalette(io.Discard, false).table("Your running pvedisk workers", headers, rows)
+	if !strings.Contains(colored, "\x1b[") || strings.Contains(plain, "\x1b") || ansiEscape.ReplaceAllString(colored, "") != plain {
+		t.Fatalf("table colors changed your visible columns: colored=%q plain=%q", colored, plain)
+	}
+	for _, want := range []string{p.number.Bold(true).Render("407"), p.muted.Render("2808155"), p.warning.Render("read/write"), p.success.Render("read-only"), p.success.Render("mounted"), p.warning.Render("partly mounted"), p.path.Render("/vault/修復/vm407")} {
+		if !strings.Contains(colored, want) {
+			t.Fatalf("missing colored cell %q in %q", want, colored)
+		}
+	}
+	pathColumn := -1
+	for _, line := range strings.Split(strings.TrimSuffix(plain, "\n"), "\n")[1:] {
+		path := strings.Index(line, "/vault/")
+		if path < 0 {
+			path = strings.Index(line, "PATH")
+		}
+		if path < 0 {
+			t.Fatalf("missing path column: %q", line)
+		}
+		if pathColumn < 0 {
+			pathColumn = lipgloss.Width(line[:path])
+		}
+		if lipgloss.Width(line[:path]) != pathColumn {
+			t.Fatalf("misaligned path column: %q", line)
+		}
+	}
+}
+
 func TestJSONColorsPreserveEveryByteAndValue(t *testing.T) {
 	plain := []byte("{\n  \"key\": \"escaped \\\"quote\\\" and \\\\ path; true null 42\",\n  \"number\": -1.25e+3,\n  \"boolean\": true,\n  \"empty\": null,\n  \"items\": [false, 42, \"value\"]\n}")
 	if !json.Valid(plain) {

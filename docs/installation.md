@@ -58,9 +58,8 @@ runner's privileged-mode configuration. A missing capability fails the
 integration job explicitly; the native build artifacts remain downloadable.
 These disk-image checks do not establish disposable-Proxmox acceptance.
 
-The pipeline selects the production runner pool tagged `mitre-no-cui-prd` so
-jobs do not alternate between development and production runner hosts. Go
-downloads verify the pinned upstream SHA256 checksum. If your network requires an additional trusted
+The pipeline selects runners tagged `mitre-no-cui`. Go downloads verify the
+pinned upstream SHA256 checksum. If your network requires an additional trusted
 certificate chain, set the project's `PVEDISK_CA_BUNDLE` CI variable to type
 **File**, with the trusted PEM certificates as its value. The build job combines
 that file, the runner's readable `CI_SERVER_TLS_CA_FILE`, and existing readable

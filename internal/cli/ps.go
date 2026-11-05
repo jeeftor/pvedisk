@@ -21,7 +21,7 @@ func psCommand(ops operations) *cobra.Command {
 	var asJSON bool
 	command := &cobra.Command{
 		Use: "ps", Short: "List your running pvedisk mount workers",
-		Long: "List your running pvedisk mount workers after checking their saved process identities. Startup and failed workers are included while they are alive; DISKS shows their current mount status. Use status to see all saved sessions, including mounts whose workers have exited.",
+		Long: "List your running pvedisk mount workers after checking their saved process identities. Startup and failed workers are included while they are alive; MOUNTS shows their current mount status. Saved sessions without a running worker are counted separately because their disks may still be mounted. Use status to inspect all saved sessions.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessions, err := ops.listSessions()
@@ -51,7 +51,7 @@ func psCommand(ops operations) *cobra.Command {
 					}
 					rows = append(rows, []string{strconv.Itoa(entry.VMID), strconv.Itoa(entry.PID), entry.Mode, status, entry.Path})
 				}
-				if err := printTable(cmd.OutOrStdout(), "Your running pvedisk workers", []string{"VMID", "PID", "MODE", "DISKS", "PATH"}, rows); err != nil {
+				if err := printTable(cmd.OutOrStdout(), "Your running pvedisk workers", []string{"VMID", "PID", "MODE", "MOUNTS", "PATH"}, rows); err != nil {
 					return err
 				}
 			}
@@ -60,7 +60,18 @@ func psCommand(ops operations) *cobra.Command {
 				if asJSON {
 					output = cmd.ErrOrStderr()
 				}
-				_, err = fmt.Fprintf(output, "Other saved records: %d inactive; %d could not be checked. Run pvedisk status to see all sessions and mounts awaiting cleanup.\n", inactive, uncertain)
+				p := outputPalette(output)
+				if inactive > 0 {
+					if _, err := fmt.Fprintln(output, p.warning.Render(fmt.Sprintf("Saved sessions without a running worker: %d.", inactive))); err != nil {
+						return err
+					}
+				}
+				if uncertain > 0 {
+					if _, err := fmt.Fprintln(output, p.warning.Render(fmt.Sprintf("Saved sessions whose worker could not be checked: %d.", uncertain))); err != nil {
+						return err
+					}
+				}
+				_, err = fmt.Fprintln(output, "Run pvedisk status to inspect these sessions; their disks may still be mounted and need cleanup.")
 				return err
 			}
 			return nil

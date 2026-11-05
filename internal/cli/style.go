@@ -50,6 +50,66 @@ func newPalette(output io.Writer, enabled bool) palette {
 
 func outputPalette(output io.Writer) palette { return newPalette(output, colorEnabled(output)) }
 
+func (p palette) table(title string, headers []string, rows [][]string) string {
+	widths := make([]int, len(headers))
+	for column, header := range headers {
+		widths[column] = lipgloss.Width(header)
+	}
+	cleanRows := make([][]string, len(rows))
+	for index, row := range rows {
+		cleanRows[index] = make([]string, len(headers))
+		for column := range headers {
+			if column < len(row) {
+				cleanRows[index][column] = cleanDisplay(row[column])
+			}
+			widths[column] = max(widths[column], lipgloss.Width(cleanRows[index][column]))
+		}
+	}
+	var output strings.Builder
+	fmt.Fprintln(&output, p.title.Render(title))
+	writeRow := func(row []string, header bool) {
+		for column, cell := range row {
+			styled := p.tableCell(headers[column], cell)
+			if header {
+				styled = p.label.Render(cell)
+			}
+			output.WriteString(styled)
+			if column < len(headers)-1 {
+				output.WriteString(strings.Repeat(" ", widths[column]-lipgloss.Width(cell)+2))
+			}
+		}
+		output.WriteByte('\n')
+	}
+	writeRow(headers, true)
+	for _, row := range cleanRows {
+		writeRow(row, false)
+	}
+	return output.String()
+}
+
+func (p palette) tableCell(header, value string) string {
+	switch header {
+	case "VMID":
+		return p.number.Bold(true).Render(value)
+	case "PID":
+		return p.muted.Render(value)
+	case "PATH":
+		return p.path.Render(value)
+	case "MODE":
+		if value == "read-only" {
+			return p.success.Render(value)
+		}
+		return p.warning.Render(value)
+	case "DISKS", "MOUNTS":
+		if value == "mounted" {
+			return p.success.Render(value)
+		}
+		return p.warning.Render(value)
+	default:
+		return value
+	}
+}
+
 func terminalWidth(output io.Writer) int {
 	if file, ok := output.(*os.File); ok {
 		if width, _, err := term.GetSize(int(file.Fd())); err == nil && width > 0 {

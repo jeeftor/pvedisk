@@ -50,7 +50,7 @@ func TestPSShowsConfirmedLiveWorkersAndTheirRealMountStatus(t *testing.T) {
 	if err != nil || stderr != "" {
 		t.Fatalf("stdout=%q stderr=%q err=%v", stdout, stderr, err)
 	}
-	for _, want := range []string{"VMID", "PID", "MODE", "DISKS", "PATH", "408", "409", "2001", "2002", "read/write", "read-only", "not mounted", "/repair/vm410", "/repair/vm411"} {
+	for _, want := range []string{"VMID", "PID", "MODE", "MOUNTS", "PATH", "408", "409", "2001", "2002", "read/write", "read-only", "not mounted", "/repair/vm410", "/repair/vm411"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("missing %q in %q", want, stdout)
 		}
@@ -75,7 +75,7 @@ func TestPSFiltersDeadStaleUnknownAndCorruptWorkersWithGuidance(t *testing.T) {
 		return []session.Description{deadWithMounts, stale, unknown, corrupt}, nil
 	}
 	stdout, stderr, err := executePS(ops)
-	if err != nil || stderr != "" || !strings.HasPrefix(stdout, "No running pvedisk workers.\n") || !strings.Contains(stdout, "2 inactive; 2 could not be checked") || !strings.Contains(stdout, "pvedisk status") || !strings.Contains(stdout, "mounts awaiting cleanup") {
+	if err != nil || stderr != "" || !strings.HasPrefix(stdout, "No running pvedisk workers.\n") || !strings.Contains(stdout, "Saved sessions without a running worker: 2.") || !strings.Contains(stdout, "Saved sessions whose worker could not be checked: 2.") || !strings.Contains(stdout, "pvedisk status") || !strings.Contains(stdout, "their disks may still be mounted and need cleanup") {
 		t.Fatalf("stdout=%q stderr=%q err=%v", stdout, stderr, err)
 	}
 	for _, pid := range []string{"3001", "3002", "3003"} {
@@ -91,7 +91,7 @@ func TestPSJSONContainsOnlyPublicFieldsAndKeepsGuidanceSeparate(t *testing.T) {
 		return []session.Description{workerDescription(408, 2001, "mounted", true, true, false), workerDescription(409, 2002, "partial", true, false, true), {VMID: 410, Error: "unreadable"}}, nil
 	}
 	stdout, stderr, err := executePS(ops, "--json")
-	if err != nil || !json.Valid([]byte(stdout)) || strings.Contains(stdout, "\x1b") || strings.Contains(stdout, "private-ownership-token") || !strings.Contains(stderr, "1 inactive; 1 could not be checked") || !strings.Contains(stderr, "pvedisk status") {
+	if err != nil || !json.Valid([]byte(stdout)) || strings.Contains(stdout, "\x1b") || strings.Contains(stdout, "private-ownership-token") || !strings.Contains(stderr, "Saved sessions without a running worker: 1.") || !strings.Contains(stderr, "Saved sessions whose worker could not be checked: 1.") || !strings.Contains(stderr, "pvedisk status") {
 		t.Fatalf("stdout=%q stderr=%q err=%v", stdout, stderr, err)
 	}
 	var entries []map[string]any
@@ -147,7 +147,26 @@ func TestPSRejectsImpossibleLiveWorkerRecords(t *testing.T) {
 	mismatched.State.VMID = 999
 	ops.listSessions = func() ([]session.Description, error) { return []session.Description{missingPID, mismatched}, nil }
 	stdout, _, err := executePS(ops)
-	if err != nil || !strings.Contains(stdout, "No running pvedisk workers.") || !strings.Contains(stdout, "2 could not be checked") {
+	if err != nil || !strings.Contains(stdout, "No running pvedisk workers.") || !strings.Contains(stdout, "Saved sessions whose worker could not be checked: 2.") {
 		t.Fatalf("stdout=%q err=%v", stdout, err)
+	}
+}
+
+func TestPSExplainsSavedSessionsWithoutSuggestingTheirDisksAreUnmounted(t *testing.T) {
+	ops := testOperations()
+	ops.listSessions = func() ([]session.Description, error) {
+		return []session.Description{workerDescription(407, 2808155, "mounted", true, true, false), workerDescription(408, 3001, "partial", true, false, false)}, nil
+	}
+	stdout, stderr, err := executePS(ops)
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout=%q stderr=%q err=%v", stdout, stderr, err)
+	}
+	for _, want := range []string{"407", "2808155", "Saved sessions without a running worker: 1.", "their disks may still be mounted and need cleanup", "pvedisk status"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("missing %q in %q", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "could not be checked") || strings.Contains(stdout, "inactive") || strings.Contains(stdout, "\x1b") {
+		t.Fatalf("misleading or colored redirected summary: %q", stdout)
 	}
 }
