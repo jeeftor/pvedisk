@@ -25,7 +25,7 @@ type operations struct {
 	setupLock              func(func() error) error
 	mount                  func(context.Context, int, string, bool, func(string)) error
 	unmount                func(context.Context, int) error
-	recover                func(context.Context, int) error
+	clean                  func(context.Context, int) error
 	reset                  func(context.Context, int, string, []byte) error
 	scheduleSELinuxRelabel func(context.Context, int, string) error
 	worker                 func(context.Context, int) error
@@ -48,7 +48,7 @@ func NewCommand() *cobra.Command {
 	return newCommand(operations{
 		hasSessions: m.HasSessions,
 		setupLock:   m.WithSetupLock,
-		mount:       m.Mount, unmount: m.Unmount, recover: m.Recover,
+		mount:       m.Mount, unmount: m.Unmount, clean: m.Clean,
 		reset: m.ResetRoot, worker: m.Worker,
 		scheduleSELinuxRelabel: m.ScheduleSELinuxRelabel,
 		status:                 m.Status,
@@ -135,7 +135,7 @@ func newCommand(ops operations) *cobra.Command {
 			return err
 		}
 		started := time.Now()
-		if err := mountWithRecoveryPrompt(cmd, ops, id, configPath, readOnly, func(phase string) {
+		if err := mountWithCleanupPrompt(cmd, ops, id, configPath, readOnly, func(phase string) {
 			if message := mountPhaseMessage(phase); message != "" {
 				p := outputPalette(cmd.OutOrStdout())
 				fmt.Fprintln(cmd.OutOrStdout(), mountProgress(p, id, phase, message, time.Since(started)))
@@ -207,7 +207,7 @@ func newCommand(ops operations) *cobra.Command {
 		run               func(context.Context, int) error
 	}{
 		{"unmount", "Safely finalize and unmount your guest", ops.unmount},
-		{"recover", "Reconcile an interrupted repair session", ops.recover},
+		{"clean", "Clean up an interrupted repair session", ops.clean},
 	} {
 		command := vmCommand(action.name, action.description, func(cmd *cobra.Command, id int) error {
 			if err := action.run(cmd.Context(), id); err != nil {

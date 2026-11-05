@@ -98,7 +98,7 @@ func TestNoninteractivePickersNeverListOrPrompt(t *testing.T) {
 	}
 }
 
-func TestUnmountPickerIncludesRecoveryRecordsButSelectsOnlyLiveOwnedMounts(t *testing.T) {
+func TestUnmountPickerIncludesCleanupRecordsButSelectsOnlyLiveOwnedMounts(t *testing.T) {
 	for _, id := range []string{"400", "401", "402", "403", "999", ""} {
 		t.Run(id, func(t *testing.T) {
 			ops := pickerOperations()
@@ -121,7 +121,7 @@ func TestUnmountPickerIncludesRecoveryRecordsButSelectsOnlyLiveOwnedMounts(t *te
 			if called != want || (err == nil) != want {
 				t.Fatalf("called=%v output=%q err=%v", called, output, err)
 			}
-			for _, text := range []string{"pvedisk unmount 400", "pvedisk recover 401", "pvedisk recover 402", "invalid ownership state"} {
+			for _, text := range []string{"pvedisk unmount 400", "pvedisk clean 401", "pvedisk clean 402", "invalid ownership state"} {
 				if !strings.Contains(output, text) {
 					t.Fatalf("missing %q in %q", text, output)
 				}
@@ -166,7 +166,7 @@ func TestStatusListsActualMountsInsteadOfAssumingRecordedPhase(t *testing.T) {
 	description.Observation = session.Observation{Status: "not-mounted", WorkerKnown: true, MountsKnown: true}
 	ops.listSessions = func() ([]session.Description, error) { return []session.Description{description}, nil }
 	output, err := execute(ops, "status")
-	for _, want := range []string{"DISKS", "SAVED STEP", "not mounted", "mounted", "pvedisk recover 400"} {
+	for _, want := range []string{"DISKS", "SAVED STEP", "not mounted", "mounted", "pvedisk clean 400"} {
 		if err != nil || !strings.Contains(output, want) {
 			t.Fatalf("missing %q output=%q err=%v", want, output, err)
 		}
@@ -228,11 +228,11 @@ func TestStatusInventoryFailureDoesNotClaimVMIsDeleted(t *testing.T) {
 	}
 }
 
-func TestRecoveryOfAbsentVMNeverSuggestsStartingIt(t *testing.T) {
+func TestCleanupOfAbsentVMNeverSuggestsStartingIt(t *testing.T) {
 	ops := testOperations()
-	ops.recover = func(context.Context, int) error { return nil }
+	ops.clean = func(context.Context, int) error { return nil }
 	ops.listVMs = func(context.Context) ([]proxmox.VM, error) { return nil, nil }
-	output, err := execute(ops, "recover", "400")
+	output, err := execute(ops, "clean", "400")
 	if err != nil || !strings.Contains(output, "Your cleanup for VM 400 is complete.") || strings.Contains(output, "qm start") {
 		t.Fatalf("output=%q err=%v", output, err)
 	}

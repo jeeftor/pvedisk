@@ -28,7 +28,7 @@ func diagnosticSession(t *testing.T) (*Manager, *State) {
 	return m, s
 }
 
-func TestUnmountMissingWorkerShowsRecoveryCommand(t *testing.T) {
+func TestUnmountMissingWorkerShowsCleanupCommand(t *testing.T) {
 	m, s := diagnosticSession(t)
 	before, err := os.ReadFile(m.statePath(400))
 	if err != nil {
@@ -38,7 +38,7 @@ func TestUnmountMissingWorkerShowsRecoveryCommand(t *testing.T) {
 	if err == nil {
 		t.Fatal("missing worker accepted")
 	}
-	for _, want := range []string{"VM 400", "recorded PID 0", "pvedisk recover 400"} {
+	for _, want := range []string{"VM 400", "recorded PID 0", "pvedisk clean 400"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("missing stale-worker diagnostic %q: %v", want, err)
 		}
@@ -73,7 +73,7 @@ func TestUnmountUnreachableWorkerShowsPIDSocketAndLog(t *testing.T) {
 	}
 }
 
-func TestRecoveryLiveApplianceIdentifiesProcessAndKeepsState(t *testing.T) {
+func TestCleanupLiveApplianceIdentifiesProcessAndKeepsState(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Linux process identities")
 	}
@@ -90,11 +90,11 @@ func TestRecoveryLiveApplianceIdentifiesProcessAndKeepsState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = m.Recover(context.Background(), 400)
+	err = m.Clean(context.Background(), 400)
 	if err == nil {
 		t.Fatal("active appliance accepted")
 	}
-	for _, want := range []string{"VM 400", "libguestfs appliance", fmt.Sprintf("ps -p %d -o pid=,comm=", os.Getpid()), "protection is retained", "pvedisk status 400", "pvedisk recover 400"} {
+	for _, want := range []string{"VM 400", "libguestfs appliance", fmt.Sprintf("ps -p %d -o pid=,comm=", os.Getpid()), "protection is retained", "pvedisk status 400", "pvedisk clean 400"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("missing appliance diagnostic %q: %v", want, err)
 		}
@@ -114,7 +114,7 @@ func TestUnmountWorkerFailureShowsNextAction(t *testing.T) {
 		want           []string
 	}{
 		{"blocked", "your disk /dev/example is open in process 123; protection is retained\n", []string{"process 123", "pvedisk unmount 400"}},
-		{"response lost", "", []string{"before cleanup was confirmed", "pvedisk status 400", "pvedisk recover 400"}},
+		{"response lost", "", []string{"before cleanup was confirmed", "pvedisk status 400", "pvedisk clean 400"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, s := diagnosticSession(t)

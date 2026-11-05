@@ -39,9 +39,9 @@ On Proxmox 9, use a guest you can destroy and restore:
 - Exit the initiating terminal and verify the detached session remains usable.
 - Keep a shell in the repair tree and request unmount; protection must remain on
   a busy-mount failure. Exit the shell and retry.
-- Interrupt the worker in each lifecycle phase and verify recovery reconciles
+- Interrupt the worker in each lifecycle phase and verify cleanup reconciles
   ownership, mounts, and appliance disk access before clearing protection.
-- Reboot the host with a session present and verify preserved-state recovery.
+- Reboot the host with a session present and verify preserved-state cleanup.
 - Attempt a destination change with an active and then unresolved session.
 - Reset root with matching passwords; boot and verify authentication. Repeat with
   mismatched passwords and confirm no disk modification.

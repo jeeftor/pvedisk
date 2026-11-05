@@ -22,7 +22,7 @@ import (
 )
 
 // ErrSessionExists means a recorded repair session must be cleaned up before mounting.
-var ErrSessionExists = errors.New("a repair session already exists; inspect status and use unmount or recover")
+var ErrSessionExists = errors.New("a repair session already exists; inspect status and use unmount or clean")
 
 func (m *Manager) intent(id int, root string, ro bool) (*State, error) {
 	if err := validID(id); err != nil {
@@ -160,7 +160,7 @@ func (m *Manager) Unmount(ctx context.Context, id int) error {
 		return err
 	}
 	if !live {
-		return fmt.Errorf("your recorded repair worker for VM %d is not running (recorded PID %d); run: pvedisk recover %d", id, s.Worker.PID, id)
+		return fmt.Errorf("your recorded repair worker for VM %d is not running (recorded PID %d); run: pvedisk clean %d", id, s.Worker.PID, id)
 	}
 	d := net.Dialer{}
 	conn, err := d.DialContext(ctx, "unix", m.socketPath(id))
@@ -185,7 +185,7 @@ func (m *Manager) Unmount(ctx context.Context, id int) error {
 	buf := make([]byte, 8192)
 	n, err := conn.Read(buf)
 	if err != nil {
-		return fmt.Errorf("your worker response for VM %d ended before cleanup was confirmed: %w; inspect pvedisk status %d before retrying unmount, or use pvedisk recover %d if the worker has exited", id, err, id, id)
+		return fmt.Errorf("your worker response for VM %d ended before cleanup was confirmed: %w; inspect pvedisk status %d before retrying unmount, or use pvedisk clean %d if the worker has exited", id, err, id, id)
 	}
 	response := strings.TrimSpace(string(buf[:n]))
 	if response != "ok" {
@@ -194,8 +194,8 @@ func (m *Manager) Unmount(ctx context.Context, id int) error {
 	return nil
 }
 
-// Recover reconciles recorded processes, mounts and disk users before unlocking.
-func (m *Manager) Recover(ctx context.Context, id int) error {
+// Clean reconciles recorded processes, mounts and disk users before unlocking.
+func (m *Manager) Clean(ctx context.Context, id int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -227,10 +227,10 @@ func (m *Manager) Recover(ctx context.Context, id int) error {
 			}
 			return fmt.Errorf("your recorded libguestfs appliance for VM %d is still running in process %s; protection is retained. Inspect with: ps -p %d -o pid=,comm=", id, processDescription("/proc", strconv.Itoa(s.Appliance.PID)), s.Appliance.PID)
 		}
-		if err := recoverMounts(s); err != nil {
+		if err := cleanMounts(s); err != nil {
 			return err
 		}
-		if err := assertRecoveryDisksUnused(s); err != nil {
+		if err := assertCleanupDisksUnused(s); err != nil {
 			return err
 		}
 		if s.PasswordFile != "" {
@@ -246,7 +246,7 @@ func (m *Manager) Recover(ctx context.Context, id int) error {
 		})
 	})
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("cannot recover your recorded session for VM %d: %w\nInspect the saved session with: pvedisk status %d\nAfter resolving the blocker, retry: pvedisk recover %d", id, err, id, id)
+		return fmt.Errorf("cannot clean up your recorded session for VM %d: %w\nInspect the saved session with: pvedisk status %d\nAfter resolving the blocker, retry: pvedisk clean %d", id, err, id, id)
 	}
 	return err
 }
@@ -301,7 +301,7 @@ func (m *Manager) finish(s *State, release func() error) error {
 		return m.fail(s, fmt.Errorf("protection retained: %w", err))
 	}
 	if err := m.removeState(s); err != nil {
-		return m.fail(s, fmt.Errorf("protection released but session cleanup is incomplete; use recover: %w", err))
+		return m.fail(s, fmt.Errorf("protection released but session cleanup is incomplete; use clean: %w", err))
 	}
 	return nil
 }

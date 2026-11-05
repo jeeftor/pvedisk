@@ -12,25 +12,25 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestMountOffersRecoveryOnlyForExistingSessionsAtATerminal(t *testing.T) {
+func TestMountOffersCleanupOnlyForExistingSessionsAtATerminal(t *testing.T) {
 	busy := errors.New("your disk is busy; protection is retained")
 	for _, tc := range []struct {
-		name, input                             string
-		terminal                                bool
-		mountErr, recoverErr, retryErr, wantErr error
-		wantRecover                             bool
+		name, input                           string
+		terminal                              bool
+		mountErr, cleanErr, retryErr, wantErr error
+		wantClean                             bool
 	}{
-		{name: "yes", input: "y\n", terminal: true, mountErr: session.ErrSessionExists, wantRecover: true},
-		{name: "yes word", input: "YES\n", terminal: true, mountErr: fmt.Errorf("saved session: %w", session.ErrSessionExists), wantRecover: true},
+		{name: "yes", input: "y\n", terminal: true, mountErr: session.ErrSessionExists, wantClean: true},
+		{name: "yes word", input: "YES\n", terminal: true, mountErr: fmt.Errorf("saved session: %w", session.ErrSessionExists), wantClean: true},
 		{name: "default no", input: "\n", terminal: true, mountErr: session.ErrSessionExists, wantErr: session.ErrSessionExists},
 		{name: "decline", input: "n\n", terminal: true, mountErr: session.ErrSessionExists, wantErr: session.ErrSessionExists},
 		{name: "end of input", terminal: true, mountErr: session.ErrSessionExists, wantErr: session.ErrSessionExists},
 		{name: "incomplete answer", input: "yes", terminal: true, mountErr: session.ErrSessionExists, wantErr: session.ErrSessionExists},
 		{name: "noninteractive", input: "y\n", mountErr: session.ErrSessionExists, wantErr: session.ErrSessionExists},
 		{name: "unrelated error", input: "y\n", terminal: true, mountErr: os.ErrPermission, wantErr: os.ErrPermission},
-		{name: "recovery blocked", input: "y\n", terminal: true, mountErr: session.ErrSessionExists, recoverErr: busy, wantRecover: true, wantErr: busy},
-		{name: "retry blocked", input: "y\n", terminal: true, mountErr: session.ErrSessionExists, retryErr: busy, wantRecover: true, wantErr: busy},
-		{name: "new conflict does not loop", input: "y\ny\n", terminal: true, mountErr: session.ErrSessionExists, retryErr: session.ErrSessionExists, wantRecover: true, wantErr: session.ErrSessionExists},
+		{name: "cleanup blocked", input: "y\n", terminal: true, mountErr: session.ErrSessionExists, cleanErr: busy, wantClean: true, wantErr: busy},
+		{name: "retry blocked", input: "y\n", terminal: true, mountErr: session.ErrSessionExists, retryErr: busy, wantClean: true, wantErr: busy},
+		{name: "new conflict does not loop", input: "y\ny\n", terminal: true, mountErr: session.ErrSessionExists, retryErr: session.ErrSessionExists, wantClean: true, wantErr: session.ErrSessionExists},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ops := pickerOperations()
@@ -46,12 +46,12 @@ func TestMountOffersRecoveryOnlyForExistingSessionsAtATerminal(t *testing.T) {
 				}
 				return tc.retryErr
 			}
-			ops.recover = func(_ context.Context, id int) error {
+			ops.clean = func(_ context.Context, id int) error {
 				if id != 408 {
-					t.Fatalf("recovered a different VM: %d", id)
+					t.Fatalf("cleaned a different VM: %d", id)
 				}
-				calls = append(calls, "recover")
-				return tc.recoverErr
+				calls = append(calls, "clean")
+				return tc.cleanErr
 			}
 			ops.status = func(int) (*session.State, error) { return &session.State{Public: "/repairs/vm408"}, nil }
 			output, err := executeInput(ops, tc.input, "--config", "/custom.yaml", "mount", "408", "--ro")
@@ -59,9 +59,9 @@ func TestMountOffersRecoveryOnlyForExistingSessionsAtATerminal(t *testing.T) {
 				t.Fatalf("output=%q err=%v, want %v", output, err, tc.wantErr)
 			}
 			wantCalls := "mount"
-			if tc.wantRecover {
-				wantCalls += ",recover"
-				if tc.recoverErr == nil {
+			if tc.wantClean {
+				wantCalls += ",clean"
+				if tc.cleanErr == nil {
 					wantCalls += ",mount"
 				}
 			}
@@ -70,16 +70,16 @@ func TestMountOffersRecoveryOnlyForExistingSessionsAtATerminal(t *testing.T) {
 			}
 			wantPrompt := tc.terminal && errors.Is(tc.mountErr, session.ErrSessionExists)
 			if strings.Contains(output, "[y/N]") != wantPrompt || strings.Count(output, "[y/N]") > 1 {
-				t.Fatalf("unexpected recovery prompt: %q", output)
+				t.Fatalf("unexpected cleanup prompt: %q", output)
 			}
 		})
 	}
 }
 
-func TestCanceledMountDoesNotOfferRecovery(t *testing.T) {
+func TestCanceledMountDoesNotOfferCleanup(t *testing.T) {
 	ops := pickerOperations()
 	ops.mount = func(context.Context, int, string, bool, func(string)) error { return session.ErrSessionExists }
-	ops.recover = func(context.Context, int) error { t.Fatal("canceled command recovered a session"); return nil }
+	ops.clean = func(context.Context, int) error { t.Fatal("canceled command cleaned a session"); return nil }
 	command := newCommand(ops)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

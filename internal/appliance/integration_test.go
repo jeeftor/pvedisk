@@ -168,7 +168,7 @@ func TestDiskImage(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !strings.Contains(string(mountinfo), " - fuse.guestfs pvedisk-integration-session ") {
-				t.Fatal("FUSE mount does not carry the expected recovery ownership label")
+				t.Fatal("FUSE mount does not carry the expected cleanup ownership label")
 			}
 			file, err := os.Open(filepath.Join(staging, "root", "etc", "selinux", "config"))
 			if err != nil {

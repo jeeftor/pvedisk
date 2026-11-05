@@ -17,7 +17,7 @@ Select a fixed site configuration file with the global flag:
 pvedisk --config /etc/pvedisk/config.yaml mcp
 ```
 
-Read-only tools, unmount, and recovery continue to work without valid site
+Read-only tools, unmount, and cleanup continue to work without valid site
 configuration because they use your host inventory or saved session paths.
 
 ## Save settings and configure clients
@@ -125,7 +125,7 @@ bearer authentication requires the configured token for those same tools.
 | `doctor` | None | Check host runtime dependencies without changing VMs. |
 | `mount` | `vmid`, optional `read_only` | Stop and protect the VM, then expose its guest filesystems. |
 | `unmount` | `vmid` | Finalize writes and clean up before releasing owned protection. |
-| `recover` | `vmid` | Reconcile an interrupted session and retain protection if cleanup is uncertain. |
+| `clean` | `vmid` | Reconcile an interrupted session and retain protection if cleanup is uncertain. |
 
 Mounting is writable by default. For read-only inspection, call the `mount`
 tool with inputs such as `{"vmid": 400, "read_only": true}`. **Read-only mounting
@@ -140,9 +140,9 @@ Graceful shutdown has a 120-second limit and never forces the guest off.
 
 A canceled request, client disconnect, or MCP server restart can leave a detached
 mount worker running. Reconnect and inspect `status`, `list_sessions`, or `ps`
-before retrying a mount. Use `unmount` when finished, or `recover` if its worker
+before retrying a mount. Use `unmount` when finished, or `clean` if its worker
 has exited. The server never starts a guest automatically. See
-[recovery](recovery.md) when cleanup cannot complete.
+[cleanup](cleanup.md) when cleanup cannot complete.
 
 Setup and password helpers are not exposed as MCP tools.
 
@@ -184,7 +184,7 @@ Keep `KillMode=process`: only the MCP server should receive the service stop
 signal, so detached repair workers can survive its restart. Keep the shared
 host mount namespace and host temporary-file visibility. Adding `PrivateMounts`,
 `PrivateTmp`, `ProtectSystem`, or other private filesystem namespaces can hide
-the public mounts or interfere with native appliance access and recovery.
+the public mounts or interfere with native appliance access and cleanup.
 Restarting this service does not unmount your guest disks; inspect saved
 sessions after reconnecting.
 

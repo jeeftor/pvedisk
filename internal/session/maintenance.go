@@ -34,7 +34,7 @@ func (m *Manager) offlineMaintenance(ctx context.Context, id int, configPath, ph
 			return err
 		}
 		if _, err := os.Lstat(m.statePath(id)); !errors.Is(err, os.ErrNotExist) {
-			return errors.New("unmount or recover your existing repair session first")
+			return errors.New("run pvedisk unmount or pvedisk clean for your existing repair session first")
 		}
 		token := make([]byte, 32)
 		if _, err := rand.Read(token); err != nil {
@@ -54,7 +54,7 @@ func (m *Manager) offlineMaintenance(ctx context.Context, id int, configPath, ph
 }
 
 // maintain runs only while the operation lock is held. A failed transition
-// leaves the persistent record and startup protection for explicit recovery.
+// leaves the persistent record and startup protection for explicit cleanup.
 func (m *Manager) maintain(ctx context.Context, s *State, phase string, p maintenanceProtection, unused func([]proxmox.Disk) error, operation func(*State) error) error {
 	disks, err := p.Inspect(ctx, s.VMID)
 	if err != nil {
@@ -122,7 +122,7 @@ func (m *Manager) resetRootOffline(ctx context.Context, s *State, password []byt
 		return err
 	}
 	if err := runCustomization(ctx, s, "--root-password", "file:"+s.PasswordFile); err != nil {
-		return fmt.Errorf("password repair failed; inspect and recover your session: %w", err)
+		return fmt.Errorf("password repair failed; inspect and clean up your session: %w", err)
 	}
 	return scrubPassword(s.PasswordFile, m.root)
 }

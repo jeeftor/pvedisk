@@ -161,16 +161,16 @@ func TestActiveAndUnresolvedSessionsPreventDestinationChange(t *testing.T) {
 	}
 }
 
-func TestUnmountAndRecoveryIgnoreDamagedConfiguration(t *testing.T) {
-	for _, action := range []string{"unmount", "recover"} {
+func TestUnmountAndCleanupIgnoreDamagedConfiguration(t *testing.T) {
+	for _, action := range []string{"unmount", "clean"} {
 		t.Run(action, func(t *testing.T) {
 			ops := testOperations()
 			ops.load = func(string) (config.Config, error) { t.Fatal("configuration read"); return config.Config{}, nil }
 			called := false
 			run := func(_ context.Context, id int) error { called = id == 400; return nil }
-			ops.unmount, ops.recover = run, run
+			ops.unmount, ops.clean = run, run
 			output, err := execute(ops, action, "400")
-			if err != nil || !called || !strings.Contains(output, "Your cleanup for VM 400 is complete.") || (action == "unmount" && !strings.Contains(output, "You can now run: qm start 400")) || (action == "recover" && strings.Contains(output, "qm start")) {
+			if err != nil || !called || !strings.Contains(output, "Your cleanup for VM 400 is complete.") || (action == "unmount" && !strings.Contains(output, "You can now run: qm start 400")) || (action == "clean" && strings.Contains(output, "qm start")) {
 				t.Fatalf("called=%v output=%q err=%v", called, output, err)
 			}
 		})
@@ -412,5 +412,15 @@ func TestMountFailureDoesNotClaimSuccess(t *testing.T) {
 	output, err := execute(ops, "mount", "406")
 	if err == nil || !strings.Contains(err.Error(), "pvedisk status 406") || strings.Contains(output, "is mounted") {
 		t.Fatalf("output=%q err=%v", output, err)
+	}
+}
+
+func TestCleanRequiresExplicitVMIDAndHasNoFormerAlias(t *testing.T) {
+	for _, args := range [][]string{{"clean"}, {"clean", "0"}, {"clean", "400", "401"}, {"recover", "400"}} {
+		ops := testOperations()
+		ops.clean = func(context.Context, int) error { t.Fatal("invalid command cleaned a session"); return nil }
+		if output, err := execute(ops, args...); err == nil {
+			t.Fatalf("arguments %v unexpectedly succeeded: %q", args, output)
+		}
 	}
 }

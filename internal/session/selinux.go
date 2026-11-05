@@ -32,7 +32,7 @@ func (m *Manager) ScheduleSELinuxRelabel(ctx context.Context, id int, configPath
 		// Disable customization's automatic immediate relabel: this utility only
 		// schedules the explicit marker, using the guest policy on its next boot.
 		if err := runCustomization(ctx, s, "--no-network", "--no-selinux-relabel", "--touch", "/.autorelabel"); err != nil {
-			return fmt.Errorf("schedule your guest SELinux relabel; inspect and recover your session: %w", err)
+			return fmt.Errorf("schedule your guest SELinux relabel; inspect and clean up your session: %w", err)
 		}
 		return nil
 	})

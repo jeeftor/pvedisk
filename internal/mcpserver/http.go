@@ -22,7 +22,7 @@ type HTTPOptions struct {
 }
 
 // RunHTTP serves MCP until cancellation. Stopping HTTP leaves repair workers
-// and their VM protection intact; callers must explicitly unmount or recover.
+// and their VM protection intact; callers must explicitly unmount or clean.
 func RunHTTP(ctx context.Context, configPath string, options HTTPOptions, output io.Writer) error {
 	if err := ctx.Err(); err != nil {
 		return err

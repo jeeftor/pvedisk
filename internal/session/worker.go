@@ -351,7 +351,7 @@ func sameDisk(a, b os.FileInfo) bool {
 	return aok && bok && a.Mode()&os.ModeDevice != 0 && b.Mode()&os.ModeDevice != 0 && as.Rdev == bs.Rdev
 }
 
-func recoverMounts(s *State) error {
+func cleanMounts(s *State) error {
 	for _, path := range []string{s.Extras, s.Public, s.Staging} {
 		if path == "" {
 			continue

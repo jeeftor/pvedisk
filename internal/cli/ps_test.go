@@ -125,7 +125,7 @@ func TestPSDoesNotLoadConfigurationOrOperateOnVMs(t *testing.T) {
 	ops.listVMs = func(context.Context) ([]proxmox.VM, error) { t.Fatal("ps queried Proxmox inventory"); return nil, nil }
 	ops.mount = func(context.Context, int, string, bool, func(string)) error { t.Fatal("ps mounted a VM"); return nil }
 	ops.unmount = func(context.Context, int) error { t.Fatal("ps unmounted a VM"); return nil }
-	ops.recover = func(context.Context, int) error { t.Fatal("ps recovered a VM"); return nil }
+	ops.clean = func(context.Context, int) error { t.Fatal("ps cleaned a VM"); return nil }
 	if _, _, err := executePS(ops); err != nil {
 		t.Fatal(err)
 	}

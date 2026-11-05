@@ -128,7 +128,7 @@ func TestQueuedMountCancellationDoesNotStartWorker(t *testing.T) {
 	}
 }
 
-func TestQueuedRecoveryCancellationPreservesSession(t *testing.T) {
+func TestQueuedCleanupCancellationPreservesSession(t *testing.T) {
 	m := testManager(t)
 	root := t.TempDir()
 	if err := os.Chmod(root, 0700); err != nil {
@@ -154,17 +154,17 @@ func TestQueuedRecoveryCancellationPreservesSession(t *testing.T) {
 	unlock := holdOperationLock(t, m)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	if err := m.Recover(ctx, 400); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("canceled queued recovery=%v", err)
+	if err := m.Clean(ctx, 400); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("canceled queued cleanup=%v", err)
 	}
 	unlock()
 	after, err := os.ReadFile(m.statePath(400))
 	if err != nil || string(before) != string(after) {
-		t.Fatal("canceled recovery changed state")
+		t.Fatal("canceled cleanup changed state")
 	}
 	for _, path := range s.CreatedPaths {
 		if _, err := os.Stat(path); err != nil {
-			t.Fatal("canceled recovery removed session directory")
+			t.Fatal("canceled cleanup removed session directory")
 		}
 	}
 }

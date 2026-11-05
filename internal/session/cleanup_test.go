@@ -138,7 +138,7 @@ func TestCleanupUnexpectedDataRetainsProtection(t *testing.T) {
 				t.Fatal("unexpected data deleted")
 			}
 			if _, err := m.Status(400); err != nil {
-				t.Fatal("failed cleanup lost recovery state")
+				t.Fatal("failed cleanup lost cleanup state")
 			}
 			if err := os.Remove(path); err != nil {
 				t.Fatal(err)

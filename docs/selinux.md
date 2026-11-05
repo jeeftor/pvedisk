@@ -27,7 +27,7 @@ pvedisk --config /etc/pvedisk/config.yaml utils selinux-relabel 400
 ```
 
 Your disks must be unmounted, with no active or unresolved repair session.
-Complete `pvedisk unmount 400` or `pvedisk recover 400` first when needed. The
+Complete `pvedisk unmount 400` or `pvedisk clean 400` first when needed. The
 helper requires valid site configuration; it never starts setup for you.
 
 The operation follows the same VM checks and protection as password maintenance:
@@ -44,7 +44,7 @@ an uncertain or conflicting root identity prevents customization.
 Through `virt-customize`, it creates the guest's `/.autorelabel` marker while
 disabling immediate relabeling. It never changes your guest's SELinux mode or
 starts the VM automatically. Failed or uncertain cleanup retains protection;
-use [session recovery](recovery.md) rather than bypassing its lock.
+use [session cleanup](cleanup.md) rather than bypassing its lock.
 
 Success means the next-boot marker was scheduled and offline cleanup finished.
 It does **not** mean a relabel has already run. When you choose to boot the

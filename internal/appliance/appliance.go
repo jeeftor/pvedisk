@@ -161,7 +161,7 @@ func mountable(kind string) bool {
 }
 
 // Export prepares a FUSE mount labeled with the session ownership token.
-// Run must then serve it. The label permits recovery to distinguish a recorded
+// Run must then serve it. The label permits cleanup to distinguish a recorded
 // mount from an unrelated mount that subsequently occupies the same path.
 func (h *Handle) Export(staging, ownership string) error {
 	if !h.prepared || h.exported || h.closed {

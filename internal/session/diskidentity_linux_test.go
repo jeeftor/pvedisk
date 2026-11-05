@@ -13,7 +13,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func recoveryDiskFixture(t *testing.T) (*State, string, string) {
+func cleanupDiskFixture(t *testing.T) (*State, string, string) {
 	t.Helper()
 	root := t.TempDir()
 	sysRoot, procRoot := filepath.Join(root, "sys"), filepath.Join(root, "proc")
@@ -33,8 +33,8 @@ func recoveryDiskFixture(t *testing.T) (*State, string, string) {
 	return s, sysRoot, procRoot
 }
 
-func TestRecoveryMissingImageChecksUnlinkedDescriptor(t *testing.T) {
-	s, sysRoot, procRoot := recoveryDiskFixture(t)
+func TestCleanupMissingImageChecksUnlinkedDescriptor(t *testing.T) {
+	s, sysRoot, procRoot := cleanupDiskFixture(t)
 	path := s.Disks[0].Path
 	f, err := os.Open(path)
 	if err != nil {
@@ -51,7 +51,7 @@ func TestRecoveryMissingImageChecksUnlinkedDescriptor(t *testing.T) {
 	if err := os.Symlink(fmt.Sprintf("/proc/self/fd/%d", f.Fd()), fdPath); err != nil {
 		t.Fatal(err)
 	}
-	err = assertRecoveryDisksUnusedAt(s, sysRoot, procRoot)
+	err = assertCleanupDisksUnusedAt(s, sysRoot, procRoot)
 	if err == nil || !strings.Contains(err.Error(), "open in process 456") {
 		t.Fatalf("unlinked descriptor ignored: %v", err)
 	}
@@ -61,13 +61,13 @@ func TestRecoveryMissingImageChecksUnlinkedDescriptor(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err != nil {
+	if err := assertCleanupDisksUnusedAt(s, sysRoot, procRoot); err != nil {
 		t.Fatalf("deleted unused disk rejected: %v", err)
 	}
 }
 
-func TestRecoveryMissingImageChecksLoopAlias(t *testing.T) {
-	s, sysRoot, procRoot := recoveryDiskFixture(t)
+func TestCleanupMissingImageChecksLoopAlias(t *testing.T) {
+	s, sysRoot, procRoot := cleanupDiskFixture(t)
 	path := s.Disks[0].Path
 	alias := path + ".alias"
 	if err := os.Link(path, alias); err != nil {
@@ -82,29 +82,29 @@ func TestRecoveryMissingImageChecksLoopAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeKernelFixture(t, filepath.Join(block, "loop", "backing_file"), alias+"\n")
-	if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "active loop mapping") {
+	if err := assertCleanupDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "active loop mapping") {
 		t.Fatalf("active loop alias ignored: %v", err)
 	}
 }
 
-func TestRecoveryMissingBlockChecksKernelIdentity(t *testing.T) {
-	s, sysRoot, procRoot := recoveryDiskFixture(t)
+func TestCleanupMissingBlockChecksKernelIdentity(t *testing.T) {
+	s, sysRoot, procRoot := cleanupDiskFixture(t)
 	path := s.Disks[0].Path
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 	s.DiskIdentities[path] = DiskIdentity{Kind: "block", Device: 1, Inode: 100, BlockDevice: unix.Mkdev(253, 17), Boot: s.DiskIdentities[path].Boot}
-	if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err != nil {
+	if err := assertCleanupDisksUnusedAt(s, sysRoot, procRoot); err != nil {
 		t.Fatalf("deleted unused block rejected: %v", err)
 	}
 	writeKernelFixture(t, filepath.Join(procRoot, "self", "mountinfo"), "1 0 253:17 / /mounted rw - ext4 /dev/dm-17 rw\n")
-	if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "mounted or active swap") {
+	if err := assertCleanupDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "mounted or active swap") {
 		t.Fatalf("mounted block alias ignored: %v", err)
 	}
 }
 
-func TestRecoveryReusedPathChecksOriginalDiskOnly(t *testing.T) {
-	s, sysRoot, procRoot := recoveryDiskFixture(t)
+func TestCleanupReusedPathChecksOriginalDiskOnly(t *testing.T) {
+	s, sysRoot, procRoot := cleanupDiskFixture(t)
 	path := s.Disks[0].Path
 	originalIdentity := s.DiskIdentities[path]
 	if err := os.Rename(path, path+".original"); err != nil {
@@ -118,11 +118,11 @@ func TestRecoveryReusedPathChecksOriginalDiskOnly(t *testing.T) {
 	if err := os.Symlink(path, fd); err != nil {
 		t.Fatal(err)
 	}
-	if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "(replacement) is open in process 123") {
+	if err := assertCleanupDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "(replacement) is open in process 123") {
 		t.Fatalf("open replacement disk ignored: %v", err)
 	}
 	if s.DiskIdentities[path] != originalIdentity {
-		t.Fatal("recovery adopted replacement disk identity")
+		t.Fatal("cleanup adopted replacement disk identity")
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != "different image" {
 		t.Fatal("replacement disk modified")
@@ -130,19 +130,19 @@ func TestRecoveryReusedPathChecksOriginalDiskOnly(t *testing.T) {
 	if err := os.Remove(fd); err != nil {
 		t.Fatal(err)
 	}
-	if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err != nil {
+	if err := assertCleanupDisksUnusedAt(s, sysRoot, procRoot); err != nil {
 		t.Fatalf("unused original and replacement rejected: %v", err)
 	}
 	if err := os.Symlink(path+".original", fd); err != nil {
 		t.Fatal(err)
 	}
-	if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "open in process 123") {
+	if err := assertCleanupDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "open in process 123") {
 		t.Fatalf("open original disk ignored: %v", err)
 	}
 }
 
 func TestReusedPathChecksReplacementLoopMapping(t *testing.T) {
-	s, sysRoot, procRoot := recoveryDiskFixture(t)
+	s, sysRoot, procRoot := cleanupDiskFixture(t)
 	path := s.Disks[0].Path
 	if err := os.Rename(path, path+".original"); err != nil {
 		t.Fatal(err)
@@ -154,7 +154,7 @@ func TestReusedPathChecksReplacementLoopMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeKernelFixture(t, filepath.Join(block, "loop", "backing_file"), path+"\n")
-	if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "(replacement) has active loop mapping") {
+	if err := assertCleanupDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "(replacement) has active loop mapping") {
 		t.Fatalf("replacement loop mapping ignored: %v", err)
 	}
 }
@@ -162,7 +162,7 @@ func TestReusedPathChecksReplacementLoopMapping(t *testing.T) {
 func TestReusedPathRequiresOriginalBootIdentity(t *testing.T) {
 	for _, boot := range []string{"", "older-host-boot"} {
 		t.Run(boot, func(t *testing.T) {
-			s, sysRoot, procRoot := recoveryDiskFixture(t)
+			s, sysRoot, procRoot := cleanupDiskFixture(t)
 			path := s.Disks[0].Path
 			if err := os.Rename(path, path+".original"); err != nil {
 				t.Fatal(err)
@@ -175,7 +175,7 @@ func TestReusedPathRequiresOriginalBootIdentity(t *testing.T) {
 			if boot != "" {
 				reason = "predates the current host boot"
 			}
-			if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), reason) || !strings.Contains(err.Error(), "replacement disk") || !strings.Contains(err.Error(), path) {
+			if err := assertCleanupDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), reason) || !strings.Contains(err.Error(), "replacement disk") || !strings.Contains(err.Error(), path) {
 				t.Fatalf("uncertain original identity accepted: %v", err)
 			}
 		})
@@ -183,14 +183,14 @@ func TestReusedPathRequiresOriginalBootIdentity(t *testing.T) {
 }
 
 func TestReusedPathChecksOriginalBlockMounts(t *testing.T) {
-	s, sysRoot, procRoot := recoveryDiskFixture(t)
+	s, sysRoot, procRoot := cleanupDiskFixture(t)
 	path := s.Disks[0].Path
 	s.DiskIdentities[path] = DiskIdentity{Kind: "block", Device: 1, Inode: 100, BlockDevice: unix.Mkdev(253, 17), Boot: s.DiskIdentities[path].Boot}
-	if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err != nil {
+	if err := assertCleanupDisksUnusedAt(s, sysRoot, procRoot); err != nil {
 		t.Fatalf("unused original block identity rejected: %v", err)
 	}
 	writeKernelFixture(t, filepath.Join(procRoot, "self", "mountinfo"), "1 0 253:17 / /mounted rw - ext4 /dev/dm-17 rw\n")
-	if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "mounted or active swap") {
+	if err := assertCleanupDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "mounted or active swap") {
 		t.Fatalf("mounted original block identity ignored: %v", err)
 	}
 }
@@ -198,7 +198,7 @@ func TestReusedPathChecksOriginalBlockMounts(t *testing.T) {
 func TestMissingDiskIdentityFromAnotherBootRetainsProtection(t *testing.T) {
 	for _, kind := range []string{"file", "block"} {
 		t.Run(kind, func(t *testing.T) {
-			s, sysRoot, procRoot := recoveryDiskFixture(t)
+			s, sysRoot, procRoot := cleanupDiskFixture(t)
 			path := s.Disks[0].Path
 			if err := os.Remove(path); err != nil {
 				t.Fatal(err)
@@ -210,7 +210,7 @@ func TestMissingDiskIdentityFromAnotherBootRetainsProtection(t *testing.T) {
 				identity.BlockDevice = unix.Mkdev(253, 17)
 			}
 			s.DiskIdentities[path] = identity
-			if err := assertRecoveryDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "host reboot") {
+			if err := assertCleanupDisksUnusedAt(s, sysRoot, procRoot); err == nil || !strings.Contains(err.Error(), "host reboot") {
 				t.Fatalf("identity reused across reboot: %v", err)
 			}
 		})

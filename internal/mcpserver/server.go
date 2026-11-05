@@ -20,15 +20,15 @@ type operations struct {
 	doctor       func(context.Context) error
 	mount        func(context.Context, int, string, bool, func(string)) error
 	unmount      func(context.Context, int) error
-	recover      func(context.Context, int) error
+	clean        func(context.Context, int) error
 }
 
 // New constructs tools using shared lifecycle managers and one fixed config path.
-// Read-only tools, unmount, and recovery never load site configuration.
+// Read-only tools, unmount, and cleanup never load site configuration.
 func New(configPath string) *mcp.Server {
 	m := session.New()
 	p := proxmox.New()
-	return newServer(configPath, operations{listVMs: p.List, listSessions: m.List, describe: m.Describe, doctor: p.Doctor, mount: m.Mount, unmount: m.Unmount, recover: m.Recover})
+	return newServer(configPath, operations{listVMs: p.List, listSessions: m.List, describe: m.Describe, doctor: p.Doctor, mount: m.Mount, unmount: m.Unmount, clean: m.Clean})
 }
 
 type emptyInput struct{}
@@ -183,7 +183,7 @@ func newServer(configPath string, ops operations) *mcp.Server {
 	for _, operation := range []struct {
 		name, description string
 		run               func(context.Context, int) error
-	}{{"unmount", "Unmount public views and finalize guest writes before releasing owned startup protection. No configuration is loaded.", ops.unmount}, {"recover", "Reconcile an interrupted session using recorded paths. Retain protection when ownership, disk users, or cleanup are uncertain. No configuration is loaded.", ops.recover}} {
+	}{{"unmount", "Unmount public views and finalize guest writes before releasing owned startup protection. No configuration is loaded.", ops.unmount}, {"clean", "Reconcile an interrupted session using recorded paths. Retain protection when ownership, disk users, or cleanup are uncertain. No configuration is loaded.", ops.clean}} {
 		mcp.AddTool(s, tool(operation.name, operation.description, false, true, false), func(ctx context.Context, _ *mcp.CallToolRequest, in vmInput) (*mcp.CallToolResult, operationResult, error) {
 			err := gates.run(ctx, in.VMID, func() error { return operation.run(ctx, in.VMID) })
 			if err != nil {

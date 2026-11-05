@@ -112,9 +112,9 @@ func TestHTTPCanceledMountPreservesExplicitCleanup(t *testing.T) {
 		close(canceled)
 		return ctx.Err()
 	}
-	var unmounts, recoveries atomic.Int32
+	var unmounts, cleanups atomic.Int32
 	ops.unmount = func(context.Context, int) error { unmounts.Add(1); return nil }
-	ops.recover = func(context.Context, int) error { recoveries.Add(1); return nil }
+	ops.clean = func(context.Context, int) error { cleanups.Add(1); return nil }
 	server := httptest.NewServer(Handler(newServer("/site/repair.yaml", ops), nil))
 	t.Cleanup(server.Close)
 	client := lifecycleHTTPClient(t, server.URL, nil)
@@ -145,7 +145,7 @@ func TestHTTPCanceledMountPreservesExplicitCleanup(t *testing.T) {
 		t.Fatalf("status after cancellation: %s", resultJSON(t, status))
 	}
 	assertHTTPLifecycleRedacted(t, resultJSON(t, status))
-	if unmounts.Load() != 0 || recoveries.Load() != 0 {
+	if unmounts.Load() != 0 || cleanups.Load() != 0 {
 		t.Fatal("canceling or disconnecting HTTP implicitly cleaned up the repair session")
 	}
 	if result := lifecycleHTTPCall(t, reconnected, "unmount", map[string]any{"vmid": 400}); result.IsError || unmounts.Load() != 1 {
@@ -156,10 +156,10 @@ func TestHTTPCanceledMountPreservesExplicitCleanup(t *testing.T) {
 func TestHTTPDisconnectAfterMountDoesNotUnmount(t *testing.T) {
 	ops := fixtureOps(t)
 	var mounted atomic.Bool
-	var unmounts, recoveries atomic.Int32
+	var unmounts, cleanups atomic.Int32
 	ops.mount = func(context.Context, int, string, bool, func(string)) error { mounted.Store(true); return nil }
 	ops.unmount = func(context.Context, int) error { unmounts.Add(1); mounted.Store(false); return nil }
-	ops.recover = func(context.Context, int) error { recoveries.Add(1); return nil }
+	ops.clean = func(context.Context, int) error { cleanups.Add(1); return nil }
 	ops.describe = func(id int) (*session.Description, error) {
 		row := fixtureDescription()
 		row.VMID = id
@@ -183,13 +183,13 @@ func TestHTTPDisconnectAfterMountDoesNotUnmount(t *testing.T) {
 	if status.IsError || !mounted.Load() || !strings.Contains(resultJSON(t, status), `"status":"mounted"`) {
 		t.Fatalf("disconnect changed mounted state: %s", resultJSON(t, status))
 	}
-	if unmounts.Load() != 0 || recoveries.Load() != 0 {
+	if unmounts.Load() != 0 || cleanups.Load() != 0 {
 		t.Fatal("HTTP disconnect triggered implicit repair cleanup")
 	}
 	if result := lifecycleHTTPCall(t, reconnected, "unmount", map[string]any{"vmid": 400}); result.IsError {
 		t.Fatalf("explicit HTTP unmount failed: %s", resultJSON(t, result))
 	}
-	if mounted.Load() || unmounts.Load() != 1 || recoveries.Load() != 0 {
+	if mounted.Load() || unmounts.Load() != 1 || cleanups.Load() != 0 {
 		t.Fatal("explicit HTTP unmount did not provide the only cleanup")
 	}
 }
@@ -287,11 +287,11 @@ func TestHTTPBackendErrorsStayRedactedToolErrors(t *testing.T) {
 	privateError := errors.New("busy /var/lib/pvedisk/private-worker " + strings.Repeat("a", 64))
 	ops.mount = func(context.Context, int, string, bool, func(string)) error { return privateError }
 	ops.unmount = func(context.Context, int) error { return privateError }
-	ops.recover = func(context.Context, int) error { return privateError }
+	ops.clean = func(context.Context, int) error { return privateError }
 	server := httptest.NewServer(Handler(newServer("/site/repair.yaml", ops), nil))
 	t.Cleanup(server.Close)
 	client := lifecycleHTTPClient(t, server.URL, nil)
-	for _, name := range []string{"mount", "unmount", "recover"} {
+	for _, name := range []string{"mount", "unmount", "clean"} {
 		result := lifecycleHTTPCall(t, client, name, map[string]any{"vmid": 400})
 		if !result.IsError {
 			t.Fatalf("%s backend failure was not an MCP tool error", name)

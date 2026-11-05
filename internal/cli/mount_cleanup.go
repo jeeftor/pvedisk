@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func mountWithRecoveryPrompt(cmd *cobra.Command, ops operations, id int, configPath string, readOnly bool, progress func(string)) error {
+func mountWithCleanupPrompt(cmd *cobra.Command, ops operations, id int, configPath string, readOnly bool, progress func(string)) error {
 	err := ops.mount(cmd.Context(), id, configPath, readOnly, progress)
 	if !errors.Is(err, session.ErrSessionExists) || !ops.terminal(cmd) {
 		return err
@@ -20,7 +20,7 @@ func mountWithRecoveryPrompt(cmd *cobra.Command, ops operations, id int, configP
 		return errors.Join(err, contextErr)
 	}
 	p := outputPalette(cmd.OutOrStdout())
-	if _, writeErr := fmt.Fprintf(cmd.OutOrStdout(), "%s\nRecovery may unmount your existing repair mounts.\n%s ", p.warning.Render(fmt.Sprintf("Your VM %d already has a repair session.", id)), p.label.Render(fmt.Sprintf("Recover your session for VM %d and retry mounting? [y/N]", id))); writeErr != nil {
+	if _, writeErr := fmt.Fprintf(cmd.OutOrStdout(), "%s\nCleanup may unmount your existing repair mounts.\n%s ", p.warning.Render(fmt.Sprintf("Your VM %d already has a repair session.", id)), p.label.Render(fmt.Sprintf("Clean up your session for VM %d and retry mounting? [y/N]", id))); writeErr != nil {
 		return errors.Join(err, writeErr)
 	}
 	answer, readErr := bufio.NewReader(io.LimitReader(cmd.InOrStdin(), 64)).ReadString('\n')
@@ -34,8 +34,8 @@ func mountWithRecoveryPrompt(cmd *cobra.Command, ops operations, id int, configP
 	if contextErr := cmd.Context().Err(); contextErr != nil {
 		return errors.Join(err, contextErr)
 	}
-	if recoverErr := ops.recover(cmd.Context(), id); recoverErr != nil {
-		return fmt.Errorf("recover your session for VM %d before mounting; your mount was not retried: %w", id, recoverErr)
+	if cleanErr := ops.clean(cmd.Context(), id); cleanErr != nil {
+		return fmt.Errorf("clean up your session for VM %d before mounting; your mount was not retried: %w", id, cleanErr)
 	}
 	return ops.mount(cmd.Context(), id, configPath, readOnly, progress)
 }

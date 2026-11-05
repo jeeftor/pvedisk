@@ -99,7 +99,7 @@ func TestOfflineMaintenanceLifecycleAndCleanup(t *testing.T) {
 	}
 }
 
-func TestOfflineMaintenanceFailuresRetainRecoveryState(t *testing.T) {
+func TestOfflineMaintenanceFailuresRetainCleanupState(t *testing.T) {
 	for _, failure := range []string{"inspect", "shutdown", "acquire", "unused-before", "operation", "unused-after", "release"} {
 		t.Run(failure, func(t *testing.T) {
 			m, s, fixture := maintenanceState(t)
@@ -123,7 +123,7 @@ func TestOfflineMaintenanceFailuresRetainRecoveryState(t *testing.T) {
 			}
 			stored, err := m.Status(s.VMID)
 			if err != nil || stored.Phase != "failed" {
-				t.Fatalf("failed operation lost recovery state: %+v, %v", stored, err)
+				t.Fatalf("failed operation lost cleanup state: %+v, %v", stored, err)
 			}
 			if failure != "inspect" && failure != "shutdown" && !stored.ProtectionAttempted {
 				t.Fatal("failed operation lost protection intent")
@@ -162,7 +162,7 @@ func TestOfflineMaintenanceCanceledBeforeMutationRetainsProtection(t *testing.T)
 	}
 	stored, err := m.Status(s.VMID)
 	if err != nil || stored.Phase != "failed" || !stored.ProtectionAttempted {
-		t.Fatal("canceled protected operation lost recovery state")
+		t.Fatal("canceled protected operation lost cleanup state")
 	}
 }
 
@@ -221,7 +221,7 @@ func TestPasswordCustomizationUsesPrivateFileAndScrubsIt(t *testing.T) {
 			}
 			stored, err := m.Status(state.VMID)
 			if err != nil || stored.PasswordFile != state.PasswordFile {
-				t.Fatal("password file recovery intent was not recorded")
+				t.Fatal("password file cleanup intent was not recorded")
 			}
 		})
 	}

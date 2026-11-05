@@ -175,7 +175,7 @@ func observe(s *State, data string, mountErr error, workerAlive bool, workerErr 
 	}
 	o.Status = "partial"
 	if !o.WorkerAlive {
-		o.Error = "your recorded worker is not running; use recover"
+		o.Error = "your recorded worker is not running; use clean"
 	} else {
 		o.Error = "one or more recorded mount views are missing"
 	}

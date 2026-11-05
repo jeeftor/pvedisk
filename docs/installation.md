@@ -28,7 +28,7 @@ pvedisk setup
 ```
 
 The bundle includes the raw `pvedisk` executable, the installer, checksums,
-license notices, `MCP.md`, the shared-package design, recovery and SELinux guidance, and an optional
+license notices, `MCP.md`, the shared-package design, cleanup and SELinux guidance, and an optional
 `pvedisk-mcp.service` template. The installer does not enable that service.
 The binary requires Debian 13 native libraries and C runtime.
 

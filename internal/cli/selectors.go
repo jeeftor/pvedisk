@@ -73,7 +73,7 @@ func selectUnmountVM(cmd *cobra.Command, ops operations) (int, error) {
 		}
 	}
 	if len(eligible) == 0 {
-		return 0, errors.New("you have no mounted sessions available for unmount; incomplete sessions require pvedisk recover VMID")
+		return 0, errors.New("you have no mounted sessions available for unmount; incomplete sessions require pvedisk clean VMID")
 	}
 	return promptVMID(cmd, eligible)
 }
@@ -114,7 +114,7 @@ func printSessions(output io.Writer, sessions []session.Description, vms []proxm
 				mode = "read-only"
 			}
 		}
-		next := "pvedisk recover " + id
+		next := "pvedisk clean " + id
 		if canUnmount(description) {
 			next = "pvedisk unmount " + id
 		}

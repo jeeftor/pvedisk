@@ -25,7 +25,7 @@ pvedisk setup --mount-root <directory> --yes
 - After setup, return to the command prompt. Subsequent bare pvedisk invocations show help and the configured destination.
 - Without a terminal, never launch the wizard. Print the noninteractive setup command when configuration is missing.
 - Mount and password-reset commands require valid configuration; they never initiate setup or stop a VM implicitly because configuration is missing.
-- Refuse destination changes while active or unresolved repair sessions exist. Unmount and recovery use recorded session paths even if configuration is missing or damaged.
+- Refuse destination changes while active or unresolved repair sessions exist. Unmount and cleanup use recorded session paths even if configuration is missing or damaged.
 - Cancelling setup leaves existing configuration and VM state untouched.
 
 ## Commands and mount layout
@@ -36,7 +36,7 @@ pvedisk mount 400 --ro
 pvedisk status 400
 pvedisk unmount 400
 pvedisk utils reset-root 400
-pvedisk recover 400
+pvedisk clean 400
 
 The configured destination determines the layout:
 
@@ -61,15 +61,15 @@ The configured destination determines the layout:
 - Atomically recheck stopped state and acquire lock: create through an embedded helper using installed Proxmox modules. Hold protection throughout disk access.
 - Track session ownership, disks, mounts, worker identity, and lifecycle phase in root-only persistent state. A detached worker keeps mounts available after the initiating terminal exits.
 - Unmount public views and FUSE, unmount guest filesystems, synchronize, and shut down the appliance before releasing protection.
-- Retain protection on busy mounts, failed finalization, or uncertain ownership. Recovery reconciles actual processes and mounts before releasing an owned lock.
+- Retain protection on busy mounts, failed finalization, or uncertain ownership. Cleanup reconciles actual processes and mounts before releasing an owned lock.
 - Password reset requires unmounted disks, prompts twice without echo, and supplies the password to virt-customize through a protected temporary file. Never log passwords.
 - Never restart automatically. After successful cleanup, print You can now run: qm start 400.
 
 ## Verification
 
 - Test first-run setup, cancellation, validation, configuration persistence, noninteractive setup, and destination-change restrictions.
-- Test lifecycle failures, conflicting operations, busy mounts, and interrupted-session recovery.
+- Test lifecycle failures, conflicting operations, busy mounts, and interrupted-session cleanup.
 - Run Go formatting, vetting, unit tests, and Linux disk-image integration tests.
 - Verify the binary and installation on Debian 13.
-- Validate real mounting, persisted edits, read-only enforcement, startup protection, and password recovery on a disposable Proxmox VM.
-- Include usage and recovery documentation, CI, and a help-first Makefile. Distinguish local/CI results from actual Proxmox acceptance.
+- Validate real mounting, persisted edits, read-only enforcement, startup protection, and password reset on a disposable Proxmox VM.
+- Include usage and cleanup documentation, CI, and a help-first Makefile. Distinguish local/CI results from actual Proxmox acceptance.

@@ -81,17 +81,17 @@ qm start 400
 ```
 
 If your VM already has a saved repair session, an interactive `mount` offers to
-recover it and retry mounting. The confirmation defaults to **No**. Recovery may
+clean it up and retry mounting. The confirmation defaults to **No**. Cleanup may
 unmount your existing repair mounts and must pass the normal ownership and disk
 safety checks before mounting is retried once, with your original options.
-Other mount errors do not offer automatic recovery. Without a terminal, the
-command returns the error; explicitly run `pvedisk recover VMID` before retrying.
+Other mount errors do not offer automatic cleanup. Without a terminal, the
+command returns the error; explicitly run `pvedisk clean VMID` before retrying.
 
 When you omit the VM ID, `mount` lists the local host's VMs, shows their state
 and repair availability, and prompts for an eligible ID in a terminal. Scripts
 must provide the ID explicitly. Existing VM destination paths are refused even when
 they are empty, so files or mounts from an earlier tool are never hidden.
-See [recovery](docs/recovery.md) if your destination already exists.
+See [cleanup](docs/cleanup.md) if your destination already exists.
 
 During startup, `mount` prints progress as the worker changes phases. On success,
 it confirms the access mode, guest root, any extras directory, discovered filesystems,
@@ -148,7 +148,7 @@ while a session exists. The utility never restarts your guest automatically.
 The initiating mount command exits after startup; the worker and appliance remain
 resident until successful cleanup. Bare `pvedisk unmount` lists those sessions
 and prompts for the one you want to clean up. `pvedisk unmount VMID` remains
-available for scripts. Sessions whose workers have exited require `recover VMID`.
+available for scripts. Sessions whose workers have exited require `clean VMID`.
 
 ## Optional password helpers
 
@@ -233,30 +233,30 @@ MCP settings default to `$XDG_CONFIG_HOME/pvedisk/mcp.yaml`, with
 different settings file, independently of the site's `--config`. Server startup
 loads saved settings and applies explicit flag overrides without writing files.
 The fresh default endpoint is `http://127.0.0.1:8766/mcp`. The server exposes VM and
-session inspection, worker listing, version, doctor, mount, unmount, and recovery.
+session inspection, worker listing, version, doctor, mount, unmount, and cleanup.
 Mounting remains writable by default; a read-only request still stops and locks
 your VM. A disconnected client can leave its detached worker running, so inspect
 status before retrying. Password helpers are not exposed over MCP. See
 [HTTP MCP setup](docs/mcp.md) for authentication, client connection, tool inputs,
 and the optional root systemd service.
 
-## Recover an interrupted session
+## Clean up an interrupted session
 
 ```console
 pvedisk status 400
 pvedisk unmount 400
 # If the worker was interrupted:
-pvedisk recover 400
+pvedisk clean 400
 ```
 
-Unmount and recovery use recorded session paths even when configuration is
+Unmount and cleanup use recorded session paths even when configuration is
 missing or damaged. Busy mounts and uncertain ownership retain startup protection.
 Close processes using the repair tree and retry cleanup. Never use lazy unmount,
 `qm unlock`, or remove session state to bypass a failed cleanup. See
-[recovery](docs/recovery.md) for the reconciliation procedure.
+[cleanup](docs/cleanup.md) for the reconciliation procedure.
 
 You cannot change the mount destination while active or unresolved sessions
-exist. Recovery confirms cleanup without suggesting that you start a possibly
+exist. `clean` confirms completion without suggesting that you start a possibly
 deleted or moved VM. Unmount prints a start command only when your VM is still
 listed on this node.
 Successful cleanup removes the directories created for that session, its socket,

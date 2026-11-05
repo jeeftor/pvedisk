@@ -74,11 +74,11 @@ func matchesDiskIdentity(info os.FileInfo, identity DiskIdentity) bool {
 	return actual.Device == identity.Device && actual.Inode == identity.Inode
 }
 
-func assertRecoveryDisksUnused(s *State) error {
-	return assertRecoveryDisksUnusedAt(s, "/sys", "/proc")
+func assertCleanupDisksUnused(s *State) error {
+	return assertCleanupDisksUnusedAt(s, "/sys", "/proc")
 }
 
-func assertRecoveryDisksUnusedAt(s *State, sysRoot, procRoot string) error {
+func assertCleanupDisksUnusedAt(s *State, sysRoot, procRoot string) error {
 	identities := make(map[string]DiskIdentity, len(s.Disks))
 	replacements := make(map[string]DiskIdentity)
 	for _, disk := range s.Disks {
@@ -88,7 +88,7 @@ func assertRecoveryDisksUnusedAt(s *State, sysRoot, procRoot string) error {
 		info, err := os.Stat(disk.Path)
 		if errors.Is(err, os.ErrNotExist) {
 			if _, ok := identities[disk.Path]; !ok {
-				return fmt.Errorf("cannot verify your missing disk %s: this older session has no recorded disk identity; restore access to the original disk or storage, then retry pvedisk recover %d; protection is retained", disk.Path, s.VMID)
+				return fmt.Errorf("cannot verify your missing disk %s: this older session has no recorded disk identity; restore access to the original disk or storage, then retry pvedisk clean %d; protection is retained", disk.Path, s.VMID)
 			}
 			if err := requireOriginalDiskBoot(disk.Path, identities[disk.Path]); err != nil {
 				return err
@@ -138,10 +138,10 @@ func requireOriginalDiskBoot(path string, identity DiskIdentity) error {
 		return err
 	}
 	if identity.Boot == "" {
-		return fmt.Errorf("cannot verify your original disk %s: its saved identity has no host boot identifier, so same-boot ownership cannot be proven; restore access to the original disk or storage before recovery; protection is retained", path)
+		return fmt.Errorf("cannot verify your original disk %s: its saved identity has no host boot identifier, so same-boot ownership cannot be proven; restore access to the original disk or storage before cleanup; protection is retained", path)
 	}
 	if identity.Boot != boot {
-		return fmt.Errorf("cannot verify your original disk %s: its saved identity predates the current host boot, and device or inode numbers may have changed after a host reboot; restore access to the original disk or storage before recovery; protection is retained", path)
+		return fmt.Errorf("cannot verify your original disk %s: its saved identity predates the current host boot, and device or inode numbers may have changed after a host reboot; restore access to the original disk or storage before cleanup; protection is retained", path)
 	}
 	return nil
 }

@@ -36,7 +36,7 @@ func fixtureOps(t *testing.T) operations {
 		doctor:  func(context.Context) error { return nil },
 		mount:   func(context.Context, int, string, bool, func(string)) error { t.Error("unexpected mount"); return nil },
 		unmount: func(context.Context, int) error { t.Error("unexpected unmount"); return nil },
-		recover: func(context.Context, int) error { t.Error("unexpected recovery"); return nil },
+		clean:   func(context.Context, int) error { t.Error("unexpected cleanup"); return nil },
 	}
 }
 
@@ -84,7 +84,7 @@ func TestToolsAdvertiseStrictContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	readonly := map[string]bool{"version": true, "list_vms": true, "list_sessions": true, "status": true, "ps": true, "doctor": true, "mount": false, "unmount": false, "recover": false}
+	readonly := map[string]bool{"version": true, "list_vms": true, "list_sessions": true, "status": true, "ps": true, "doctor": true, "mount": false, "unmount": false, "clean": false}
 	if len(list.Tools) != len(readonly) {
 		t.Fatalf("unexpected tools: %v", list.Tools)
 	}
@@ -140,7 +140,7 @@ func TestInvalidInputsNeverInvokeOperations(t *testing.T) {
 	ops := fixtureOps(t)
 	ops.describe = func(int) (*session.Description, error) { t.Error("invalid input reached status"); return nil, nil }
 	c := clientFor(t, newServer("/config", ops), nil)
-	for _, name := range []string{"status", "mount", "unmount", "recover"} {
+	for _, name := range []string{"status", "mount", "unmount", "clean"} {
 		for _, args := range []map[string]any{{}, {"vmid": 99}, {"vmid": 1000000000}, {"vmid": "400"}, {"vmid": 400, "shell": "never-run"}, {"vmid": 400, "config": "/alternate"}} {
 			if result := call(t, c, name, args); !result.IsError {
 				t.Fatalf("%s accepted %v", name, args)
@@ -235,9 +235,9 @@ func TestToolFailuresAreToolErrorsAndRedacted(t *testing.T) {
 	}
 	ops.doctor = func(context.Context) error { return errors.New("runtime missing") }
 	ops.unmount = func(context.Context, int) error { return errors.New("busy mount") }
-	ops.recover = func(context.Context, int) error { return errors.New("ownership uncertain") }
+	ops.clean = func(context.Context, int) error { return errors.New("ownership uncertain") }
 	c := clientFor(t, newServer("/config", ops), nil)
-	for _, name := range []string{"mount", "doctor", "unmount", "recover"} {
+	for _, name := range []string{"mount", "doctor", "unmount", "clean"} {
 		args := map[string]any{}
 		if name != "doctor" {
 			args["vmid"] = 400
@@ -263,9 +263,9 @@ func TestCleanupDoesNotAdviseStartingDeletedOrRebuiltVM(t *testing.T) {
 		return nil, nil
 	}
 	ops.unmount = func(context.Context, int) error { return nil }
-	ops.recover = func(context.Context, int) error { return nil }
+	ops.clean = func(context.Context, int) error { return nil }
 	c := clientFor(t, newServer("/missing-config", ops), nil)
-	for _, name := range []string{"unmount", "recover"} {
+	for _, name := range []string{"unmount", "clean"} {
 		r := call(t, c, name, map[string]any{"vmid": 400})
 		text := resultJSON(t, r)
 		if r.IsError || strings.Contains(text, "qm start") || !strings.Contains(text, "never started") {

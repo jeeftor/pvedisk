@@ -57,12 +57,12 @@ func TestLegacyMissingDiskRetainsSession(t *testing.T) {
 	if err = m.save(s); err != nil {
 		t.Fatal(err)
 	}
-	err = assertRecoveryDisksUnusedAt(s, filepath.Join(root, "sys"), filepath.Join(root, "proc"))
+	err = assertCleanupDisksUnusedAt(s, filepath.Join(root, "sys"), filepath.Join(root, "proc"))
 	if err == nil || !strings.Contains(err.Error(), "no recorded disk identity") {
 		t.Fatalf("legacy missing path error=%v", err)
 	}
 	if _, err = m.Status(400); err != nil {
-		t.Fatal("uncertain recovery lost persistent state")
+		t.Fatal("uncertain cleanup lost persistent state")
 	}
 }
 
