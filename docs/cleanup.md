@@ -32,6 +32,21 @@ After host reboot, verify that the appliance and its disk access are gone and ru
 cleanup against the preserved state. A missing configuration file is not a reason
 to recreate the mount root or discard session records.
 
+## Check mounts in scripts
+
+Run `pvedisk ismounted VMID` as root to test your current pvedisk mount views
+without loading site configuration or changing state. It exits silently with
+`0` when all recorded views are mounted with matching ownership and a confirmed
+live worker, or `1` when there is no recorded session or none of its views remain
+mounted. Invalid arguments, inspection failures, partial mounts, conflicts, and
+uncertain observations exit `2` with a diagnostic on standard error.
+
+Exit `1` does not prove that cleanup finished, startup protection was released,
+or your VM is safe to start. Only recorded pvedisk sessions are checked; mounts
+from other tools or mounts whose session record was removed are outside this
+check. Use `pvedisk status VMID` to inspect retained state and `pvedisk clean VMID`
+to reconcile an interrupted session. Each result is a snapshot.
+
 ## Busy mounts and disk users
 
 A failed unmount reports the exact mount path, the `umount` error, and a bounded

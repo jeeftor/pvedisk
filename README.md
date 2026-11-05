@@ -130,6 +130,34 @@ shown explicitly. Only pvedisk sessions are tracked; mounts from other tools are
 not adopted. Redirected JSON remains plain. Set `NO_COLOR=1` or `TERM=dumb` to
 disable terminal colors.
 
+For scripts, run `pvedisk ismounted VMID` as root. It checks actual mounts and
+worker identity without loading site configuration or changing your session.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | All recorded mount views are present and owned by your session, with its worker confirmed alive. |
+| `1` | No recorded pvedisk session, or none of its recorded mount views remain mounted. |
+| `2` | Invalid arguments, failed inspection, partial mounts, or conflicting or uncertain state. |
+
+Codes `0` and `1` produce no output. Code `2` writes a diagnostic to standard
+error. Both writable and read-only mounts count as mounted. Only pvedisk
+sessions are tracked; mounts from other tools or mounts whose session record
+was removed are outside this check. A result is a snapshot, and exit `1` does
+not mean cleanup is complete or your VM is safe to start. Use `status` and
+`clean` to resolve retained sessions and startup protection.
+
+```sh
+if pvedisk ismounted 400; then
+    echo "Your repair session is mounted."
+else
+    result=$?
+    case "$result" in
+        1) echo "Your repair session is not mounted." ;;
+        *) exit "$result" ;;
+    esac
+fi
+```
+
 `<mount-root>/vm400/` corresponds to the guest's `/`, including separate Linux
 mountpoints such as `/boot` and `/home`. Other mountable filesystems appear under
 `<mount-root>/vm400-extra/<filesystem-id>/`. Swap and partition containers are

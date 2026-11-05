@@ -72,6 +72,21 @@ jobs:
           /usr/local/bin/pvedisk version --short
           /usr/local/bin/pvedisk version --json
           test ! -e /etc/pvedisk/config.yaml
+          # Exercise real process exits on a host without repair-session state.
+          set +e
+          /usr/local/bin/pvedisk ismounted 999999999 >probe.stdout 2>probe.stderr
+          probe_code=$?
+          set -e
+          test "$probe_code" -eq 1
+          test ! -s probe.stdout
+          test ! -s probe.stderr
+          set +e
+          /usr/local/bin/pvedisk ismounted invalid >probe.stdout 2>probe.stderr
+          probe_code=$?
+          set -e
+          test "$probe_code" -eq 2
+          test ! -s probe.stdout
+          test -s probe.stderr
       - uses: actions/upload-artifact@v4
         with:
           name: native-pvedisk

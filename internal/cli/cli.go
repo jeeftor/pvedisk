@@ -201,6 +201,7 @@ func newCommand(ops operations) *cobra.Command {
 		return printSessions(cmd.OutOrStdout(), sessions, vms, inventoryErr)
 	}
 	root.AddCommand(status)
+	root.AddCommand(isMountedCommand(ops))
 	root.AddCommand(psCommand(ops))
 	for _, action := range []struct {
 		name, description string

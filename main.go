@@ -12,6 +12,6 @@ func main() {
 		if !cli.PrintError(os.Stderr, err) {
 			slog.Error("pvedisk failed", "error", err)
 		}
-		os.Exit(1)
+		os.Exit(cli.ExitCode(err))
 	}
 }

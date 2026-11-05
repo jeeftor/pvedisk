@@ -34,6 +34,7 @@ pvedisk doctor
 pvedisk mount 400
 pvedisk mount 400 --ro
 pvedisk status 400
+pvedisk ismounted 400
 pvedisk unmount 400
 pvedisk utils reset-root 400
 pvedisk clean 400

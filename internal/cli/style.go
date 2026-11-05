@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -210,9 +211,12 @@ func renderHelp(p palette, text string, width int) string {
 }
 
 // PrintError renders terminal errors clearly while keeping machine logs structured.
-// It reports whether a terminal message was written so callers can retain slog
-// for redirected output and detached worker logs.
+// It reports whether the error was handled, including silent predicate results,
+// so callers can retain slog for other redirected errors and worker logs.
 func PrintError(output io.Writer, err error) bool {
+	if errors.Is(err, errNotMounted) {
+		return true
+	}
 	file, ok := output.(*os.File)
 	if !ok || !term.IsTerminal(int(file.Fd())) {
 		return false

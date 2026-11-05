@@ -33,6 +33,12 @@ On Proxmox 9, use a guest you can destroy and restore:
 - Start a guest, mount it, and verify graceful shutdown. Make shutdown time out
   and confirm the utility does not force the guest off or access its disks.
 - During mounting, try a normal `qm start`; it must fail due to VM protection.
+- Check `ismounted VMID` as root: exit `0` for a complete read-only or writable
+  session, silent exit `1` before mounting and after unmounting, and exit `2`
+  with a diagnostic for incomplete or conflicting mounts and inspection failures.
+  Confirm invalid arguments also exit `2`. Check that no configuration or state
+  is created by the probe, and that a saved `mounted` step with no remaining
+  views returns `1` without releasing startup protection.
 - Mount read-only and verify an attempted edit fails; unmount and verify the
   original guest data is intact.
 - Mount writable, make a recognizable edit, unmount, boot, and verify persistence.
