@@ -15,7 +15,7 @@ use PVE::Tools;
 
 die "root required\n" if $> != 0;
 my ($operation, $vmid, $token) = @ARGV;
-die "invalid operation\n" if !defined($operation) || $operation !~ /\A(?:inspect|acquire|release|doctor|list)\z/;
+die "invalid operation\n" if !defined($operation) || $operation !~ /\A(?:inspect|stopped|acquire|release|doctor|list)\z/;
 if ($operation eq 'doctor') { print "[]\n"; exit 0; }
 if ($operation eq 'list') {
     # config_list restricts the cluster inventory to local QEMU VMs. Full status
@@ -53,7 +53,7 @@ if ($operation eq 'list') {
     exit 0;
 }
 die "invalid VM ID\n" if !defined($vmid) || $vmid !~ /\A[1-9][0-9]{2,8}\z/;
-die "invalid token\n" if $operation ne 'inspect' && (!defined($token) || $token !~ /\A[A-Za-z0-9-]{16,128}\z/);
+die "invalid token\n" if $operation ne 'inspect' && $operation ne 'stopped' && (!defined($token) || $token !~ /\A[A-Za-z0-9-]{16,128}\z/);
 my $json = JSON::PP->new->canonical;
 my $owner_dir = '/var/lib/pvedisk/locks';
 my $owner_path = "$owner_dir/$vmid.json";
@@ -142,6 +142,13 @@ my $result = [];
 PVE::QemuConfig->lock_config($vmid, sub {
     my $absent = $operation eq 'release' && config_is_absent();
     my $conf = $absent ? undef : PVE::QemuConfig->load_config($vmid);
+    if ($operation eq 'stopped') {
+        my $status = PVE::QemuServer::vmstatus($vmid, 1)->{$vmid};
+        die "cannot confirm VM $vmid is stopped\n" if !$status || ($status->{status} // '') !~ /\A(?:running|stopped)\z/;
+        die "VM $vmid is running; stop it first with: qm shutdown $vmid\n" if $status->{status} ne 'stopped' || PVE::QemuServer::check_running($vmid);
+        die "VM $vmid has paused or suspended state\n" if $conf->{vmstate} || ($status->{qmpstatus} // 'stopped') ne 'stopped';
+        return;
+    }
     if ($operation eq 'release') {
         secure_owner_directory();
         my $fh;

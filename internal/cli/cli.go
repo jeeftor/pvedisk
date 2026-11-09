@@ -130,7 +130,7 @@ func newCommand(ops operations) *cobra.Command {
 		},
 	})
 	var readOnly bool
-	mount := vmCommand("mount", "Mount your guest filesystems (writable by default)", func(cmd *cobra.Command, id int) error {
+	mount := vmCommand("mount", "Mount your stopped guest filesystems (writable by default)", func(cmd *cobra.Command, id int) error {
 		if _, err := requireConfig(cmd, ops, configPath); err != nil {
 			return err
 		}
@@ -294,6 +294,10 @@ func newCommand(ops operations) *cobra.Command {
 
 func mountPhaseMessage(phase string) string {
 	switch phase {
+	case "cleaning-stale":
+		return "your recorded worker is no longer running; checking and cleaning your stale session"
+	case "cleaned-stale":
+		return "your stale session was cleaned; continuing your mount"
 	case "pending":
 		return "starting your repair worker"
 	case "inspecting":

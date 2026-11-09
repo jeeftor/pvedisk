@@ -80,12 +80,21 @@ pvedisk unmount 400
 qm start 400
 ```
 
-If your VM already has a saved repair session, an interactive `mount` offers to
-clean it up and retry mounting. The confirmation defaults to **No**. Cleanup may
+Mount requires your VM to be stopped, including with `--ro`. If it is running,
+pvedisk refuses the request and prints `qm shutdown VMID`; it does not stop the
+VM for you. After confirming the VM is stopped, `mount VMID` automatically
+reconciles a saved session whose recorded worker has exited, then continues
+mounting with your original options. Recovery checks the appliance, mounts, disk
+users, directories, and lock ownership before removing state. It retains
+protection and reports the blocker when cleanup cannot be proven safe.
+
+For an active session or a pending worker without a recorded process identity,
+an interactive `mount` offers to clean it up and retry mounting. The confirmation defaults to **No**. Cleanup may
 unmount your existing repair mounts and must pass the normal ownership and disk
 safety checks before mounting is retried once, with your original options.
-Other mount errors do not offer automatic cleanup. Without a terminal, the
-command returns the error; explicitly run `pvedisk clean VMID` before retrying.
+Other mount errors do not offer a cleanup prompt. Without a terminal, active
+or pending sessions return an error; explicitly unmount or clean them before
+retrying. Dead-worker recovery also works in scripts and through MCP.
 
 When you omit the VM ID, `mount` lists the local host's VMs, shows their state
 and repair availability, and prompts for an eligible ID in a terminal. Scripts
@@ -167,8 +176,8 @@ missing disks, and filesystem mount failures abort the operation.
 Attached file-backed disks, LVM volumes, and ZFS block volumes are supported when
 the host can access them. Installation media, cloud-init, EFI-variable, TPM, and
 unattached disks are excluded. Existing locks, suspended or paused guests,
-pending changes, and HA management prevent repair. Running guests receive a
-graceful shutdown request with a 120-second limit; shutdown is never forced.
+pending changes, and HA management prevent repair. Mount refuses running guests
+and atomically rechecks stopped state when acquiring startup protection.
 
 A detached worker owns one appliance and one FUSE export for each VM. Your
 terminal can exit while you work. Do not bypass the VM lock or start the guest
@@ -192,8 +201,9 @@ pvedisk utils hash-password
 to RHEL 10. It requires valid site configuration and unmounted disks, and prompts
 twice without echo. It passes the password to `virt-customize` through a
 protected temporary file and never includes it in command arguments or logs.
-The VM lifecycle checks, graceful shutdown, startup protection, and cleanup
-requirements also apply to this optional reset helper.
+This optional reset helper retains its graceful shutdown request with a
+120-second limit and no forced power-off, followed by startup protection and
+cleanup. Mount itself requires you to stop the guest first.
 
 `verify-password` prompts once without echo and compares your known password
 against the selected shadow entry. The account defaults to `root`; use

@@ -30,8 +30,13 @@ On Proxmox 9, use a guest you can destroy and restore:
   VM changes occurred.
 - Reject existing locks, pending disk changes, HA-managed guests, suspended
   guests, ambiguous roots, encrypted disks, occupied paths, and missing volumes.
-- Start a guest, mount it, and verify graceful shutdown. Make shutdown time out
-  and confirm the utility does not force the guest off or access its disks.
+- Start a guest and verify both writable and read-only mount requests refuse it
+  with a stop instruction, without changing the VM or its saved session. Stop
+  the guest, leave a dead-worker session, and verify mounting safely cleans it
+  and continues. Live appliances, disk users, foreign mounts, and uncertain
+  ownership must still block recovery.
+- For optional offline maintenance, verify graceful shutdown times out without
+  forcing the guest off or accessing its disks.
 - During mounting, try a normal `qm start`; it must fail due to VM protection.
 - Check `ismounted VMID` as root: exit `0` for a complete read-only or writable
   session, silent exit `1` before mounting and after unmounting, and exit `2`

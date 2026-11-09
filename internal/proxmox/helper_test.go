@@ -20,6 +20,45 @@ func TestEmbeddedHelperSyntax(t *testing.T) {
 	}
 }
 
+func TestEmbeddedStoppedPreflightDoesNotChangeVM(t *testing.T) {
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("Perl is unavailable")
+	}
+	for _, scenario := range []struct {
+		name, config, message string
+	}{
+		{"stopped", `{}`, ""},
+		{"owned-lock", `{"lock":"create"}`, ""},
+		{"running", `{"test_running":true,"test_qmp":"running"}`, "qm shutdown 400"},
+		{"paused", `{"test_running":true,"test_qmp":"paused"}`, "qm shutdown 400"},
+		{"suspended", `{"vmstate":"saved"}`, "suspended"},
+		{"unknown-monitor", `{"test_qmp":"unknown"}`, "paused or suspended"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			if err := os.WriteFile(path, []byte(scenario.config), 0600); err != nil {
+				t.Fatal(err)
+			}
+			// This read-only operation uses mocked PVE modules, so exercise it
+			// without root on developer hosts as well as in native CI.
+			script := strings.Replace(helper, `die "root required\n" if $> != 0;`, "", 1)
+			cmd := exec.Command("perl", "-Itestdata", "-e", script, "--", "stopped", "400", "")
+			cmd.Env = append(os.Environ(), "PVEDISK_TEST_CONFIG="+path)
+			out, err := cmd.CombinedOutput()
+			if scenario.message == "" {
+				if err != nil || strings.TrimSpace(string(out)) != "[]" {
+					t.Fatalf("stopped preflight: %v: %s", err, out)
+				}
+			} else if err == nil || !strings.Contains(string(out), scenario.message) {
+				t.Fatalf("unsafe state accepted or unclear diagnostic: %v: %s", err, out)
+			}
+			if after, err := os.ReadFile(path); err != nil || string(after) != scenario.config {
+				t.Fatal("preflight changed VM configuration")
+			}
+		})
+	}
+}
+
 func TestEmbeddedHelperLifecycle(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("ownership tests require root; run in Debian CI containers")

@@ -103,6 +103,12 @@ func (c *Client) Inspect(ctx context.Context, id int) ([]Disk, error) {
 	return c.call(ctx, "inspect", id, "")
 }
 
+// RequireStopped checks VM state without changing configuration or existing locks.
+func (c *Client) RequireStopped(ctx context.Context, id int) error {
+	_, err := c.call(ctx, "stopped", id, "")
+	return err
+}
+
 // Acquire atomically rechecks stopped state and records an owned create lock.
 func (c *Client) Acquire(ctx context.Context, id int, token string) ([]Disk, error) {
 	if !validToken(token) {

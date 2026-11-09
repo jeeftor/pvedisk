@@ -289,6 +289,9 @@ func identity(pid int) (Identity, error) {
 	if len(fields) < 20 {
 		return Identity{}, errors.New("short process stat")
 	}
+	if fields[0] == "Z" || fields[0] == "X" {
+		return Identity{}, os.ErrNotExist
+	}
 	return Identity{PID: pid, Start: fields[19], Boot: strings.TrimSpace(string(boot))}, nil
 }
 

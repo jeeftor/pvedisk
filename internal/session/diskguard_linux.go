@@ -147,6 +147,14 @@ func readKernelMounts(procRoot string) (map[string]bool, error) {
 		if index > 0 && (errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH)) {
 			continue
 		}
+		if index > 0 && errors.Is(err, syscall.EINVAL) {
+			// Exiting tasks and kernel threads can have no mount namespace.
+			// Confirm its absence rather than ignoring errors for live namespaces.
+			_, nsErr := os.Stat(filepath.Join(filepath.Dir(path), "ns", "mnt"))
+			if errors.Is(nsErr, os.ErrNotExist) || errors.Is(nsErr, syscall.ESRCH) {
+				continue
+			}
+		}
 		if err != nil {
 			return nil, fmt.Errorf("inspect kernel mount namespace: %w", err)
 		}

@@ -3,12 +3,57 @@
 package session
 
 import (
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/jeeftor/pvedisk/internal/proxmox"
 )
+
+func TestKernelMountNamespacesWithExitedProcess(t *testing.T) {
+	cmd := exec.Command("true")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Wait()
+	process := filepath.Join("/proc", strconv.Itoa(cmd.Process.Pid))
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		data, err := os.ReadFile(filepath.Join(process, "stat"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(string(data)[strings.LastIndex(string(data), ")")+1:], " Z ") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("child did not exit")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := os.ReadFile(filepath.Join(process, "mountinfo")); !errors.Is(err, syscall.EINVAL) {
+		t.Fatalf("expected exited task mountinfo to return EINVAL, got %v", err)
+	}
+	if live, err := alive(Identity{PID: cmd.Process.Pid}); err != nil || live {
+		t.Fatalf("exited task reported as a live worker: %t, %v", live, err)
+	}
+	// Limit the scan to this real proc entry and our own readable namespace.
+	root := t.TempDir()
+	for name, target := range map[string]string{"self": "/proc/self", "123": process} {
+		if err := os.Symlink(target, filepath.Join(root, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := readKernelMounts(root); err != nil {
+		t.Fatalf("exited task blocked mount namespace inspection: %v", err)
+	}
+}
 
 func TestKernelBlockMountsAndHolders(t *testing.T) {
 	blocks := []kernelBlock{

@@ -52,13 +52,6 @@ func (m *Manager) Worker(ctx context.Context, id int) error {
 		if err != nil {
 			return m.fail(s, err)
 		}
-		s.Phase = "stopping"
-		if err = m.save(s); err != nil {
-			return err
-		}
-		if err = p.Shutdown(ctx, id); err != nil {
-			return m.fail(s, err)
-		}
 		s.Phase = "acquiring"
 		s.ProtectionAttempted = true
 		if err = m.save(s); err != nil {

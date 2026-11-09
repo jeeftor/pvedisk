@@ -58,7 +58,7 @@ The configured destination determines the layout:
 ## VM lifecycle and password repair
 
 - Reject existing Proxmox locks, suspended VMs, pending disk changes, and HA-managed VMs.
-- Request graceful shutdown for running VMs and wait up to 120 seconds. Abort on timeout without forcing power off.
+- Mount requires an already stopped VM and refuses running guests before stale recovery. Automatically reconcile the requested VM's dead-worker session with normal cleanup checks before mounting. Optional offline maintenance retains graceful shutdown with a 120-second limit and no forced power-off.
 - Atomically recheck stopped state and acquire lock: create through an embedded helper using installed Proxmox modules. Hold protection throughout disk access.
 - Track session ownership, disks, mounts, worker identity, and lifecycle phase in root-only persistent state. A detached worker keeps mounts available after the initiating terminal exits.
 - Unmount public views and FUSE, unmount guest filesystems, synchronize, and shut down the appliance before releasing protection.

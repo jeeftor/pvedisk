@@ -87,7 +87,7 @@ func tool(name, description string, readonly, withID, withMode bool) *mcp.Tool {
 func boolPointer(value bool) *bool { return &value }
 
 func newServer(configPath string, ops operations) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "pvedisk", Version: buildinfo.Version}, &mcp.ServerOptions{Instructions: "Manage local Proxmox repair sessions. Mount may gracefully shut down a running VM and grants disk access. Never start a VM before cleanup succeeds. If a mount call is canceled or interrupted, its detached worker may continue: inspect status before retrying. Public filesystem host paths are on this Proxmox host."})
+	s := mcp.NewServer(&mcp.Implementation{Name: "pvedisk", Version: buildinfo.Version}, &mcp.ServerOptions{Instructions: "Manage local Proxmox repair sessions. Mount requires a stopped VM and grants disk access. Mount automatically reconciles stale sessions with exited workers, retaining protection if cleanup is uncertain. Never start a VM before cleanup succeeds. If a mount call is canceled or interrupted, its detached worker may continue: inspect status before retrying. Public filesystem host paths are on this Proxmox host."})
 	gates := &vmGates{entries: make(map[int]*vmGate)}
 	mcp.AddTool(s, tool("version", "Read the running pvedisk executable build metadata.", true, false, false), func(context.Context, *mcp.CallToolRequest, emptyInput) (*mcp.CallToolResult, buildinfo.Info, error) {
 		return nil, buildinfo.Current(), nil
@@ -153,7 +153,7 @@ func newServer(configPath string, ops operations) *mcp.Server {
 		err := ops.doctor(ctx)
 		return nil, diagnosticResult{OK: err == nil, Message: "Runtime checks passed."}, safeError(err)
 	})
-	mcp.AddTool(s, tool("mount", "Mount a VM writable by default. May gracefully shut it down, acquire startup protection, and start a detached worker. On cancellation the worker may continue: inspect status before retrying.", false, true, true), func(ctx context.Context, req *mcp.CallToolRequest, in mountInput) (*mcp.CallToolResult, operationResult, error) {
+	mcp.AddTool(s, tool("mount", "Mount an already stopped VM writable by default. Safely reconcile its dead-worker session, acquire startup protection, and start a detached worker. On cancellation the worker may continue: inspect status before retrying.", false, true, true), func(ctx context.Context, req *mcp.CallToolRequest, in mountInput) (*mcp.CallToolResult, operationResult, error) {
 		out := operationResult{VMID: in.VMID}
 		err := gates.run(ctx, in.VMID, func() error {
 			var progress float64

@@ -129,14 +129,17 @@ bearer authentication requires the configured token for those same tools.
 
 Mounting is writable by default. For read-only inspection, call the `mount`
 tool with inputs such as `{"vmid": 400, "read_only": true}`. **Read-only mounting
-still shuts down a running VM and keeps it stopped and locked.** A running
+requires an already stopped VM and keeps it stopped and locked.** A running
 guest could otherwise change the disks underneath the filesystem view. Use a
 separate snapshot or backup if the original guest must stay running.
 
 The tools use the same lifecycle checks, disk discovery, session ownership, and
 cleanup safeguards as the CLI. Mount requests reject existing locks, HA-managed
 guests, suspended guests, pending disk changes, and occupied destinations.
-Graceful shutdown has a 120-second limit and never forces the guest off.
+Running VMs are refused with a `qm shutdown VMID` instruction before any stale
+session cleanup. A stopped VM with a recorded, exited worker is automatically
+reconciled before mounting; cleanup retains protection if any ownership or disk
+usage check fails. Active and pending sessions still require explicit cleanup.
 
 A canceled request, client disconnect, or MCP server restart can leave a detached
 mount worker running. Reconnect and inspect `status`, `list_sessions`, or `ps`

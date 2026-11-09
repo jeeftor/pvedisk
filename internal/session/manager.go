@@ -78,6 +78,12 @@ func (m *Manager) Mount(ctx context.Context, id int, configPath string, ro bool,
 		if err != nil {
 			return err
 		}
+		if err := proxmox.New().RequireStopped(ctx, id); err != nil {
+			return err
+		}
+		if err := m.cleanStaleForMount(ctx, id, progress); err != nil {
+			return err
+		}
 		s, err := m.intent(id, cfg.MountRoot, ro)
 		if err != nil {
 			return err
@@ -141,6 +147,39 @@ func (m *Manager) Mount(ctx context.Context, id int, configPath string, ro bool,
 			}
 		}
 	}
+}
+
+// cleanStaleForMount recovers only the requested VM while holding the operation lock.
+func (m *Manager) cleanStaleForMount(ctx context.Context, id int, progress func(string)) error {
+	if err := validID(id); err != nil {
+		return err
+	}
+	s, err := m.readState(id)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect your existing session for VM %d: %w", id, err)
+	}
+	// PID zero may mean a detached worker has been launched but has not yet
+	// recorded its identity. Never race that worker by discarding its intent.
+	live, err := alive(s.Worker)
+	if err != nil {
+		return fmt.Errorf("inspect your recorded worker for VM %d: %w", id, err)
+	}
+	if s.Worker.PID == 0 || live {
+		return ErrSessionExists
+	}
+	if progress != nil {
+		progress("cleaning-stale")
+	}
+	if err := m.cleanStoppedWorker(ctx, s); err != nil {
+		return fmt.Errorf("your stale session for VM %d (recorded worker PID %d is no longer running) could not be cleaned safely: %w; inspect pvedisk status %d and retry pvedisk clean %d", id, s.Worker.PID, err, id, id)
+	}
+	if progress != nil {
+		progress("cleaned-stale")
+	}
+	return nil
 }
 
 // Unmount asks the recorded worker to finalize its appliance before unlocking.
@@ -215,40 +254,49 @@ func (m *Manager) Clean(ctx context.Context, id int) error {
 		if err != nil {
 			return err
 		}
-		if live, err := alive(s.Worker); err != nil || live {
-			if err != nil {
-				return err
-			}
-			return fmt.Errorf("your repair worker for VM %d is active (PID %d); run: pvedisk unmount %d", id, s.Worker.PID, id)
-		}
-		if live, err := alive(s.Appliance); err != nil || live {
-			if err != nil {
-				return err
-			}
-			return fmt.Errorf("your recorded libguestfs appliance for VM %d is still running in process %s; protection is retained. Inspect with: ps -p %d -o pid=,comm=", id, processDescription("/proc", strconv.Itoa(s.Appliance.PID)), s.Appliance.PID)
-		}
-		if err := cleanMounts(s); err != nil {
-			return err
-		}
-		if err := assertCleanupDisksUnused(s); err != nil {
-			return err
-		}
-		if s.PasswordFile != "" {
-			if err := scrubPassword(s.PasswordFile, m.root); err != nil {
-				return err
-			}
-		}
-		return m.finish(s, func() error {
-			if !s.ProtectionAttempted {
-				return nil
-			}
-			return proxmox.New().Release(ctx, id, s.Token)
-		})
+		return m.cleanStoppedWorker(ctx, s)
 	})
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 		return fmt.Errorf("cannot clean up your recorded session for VM %d: %w\nInspect the saved session with: pvedisk status %d\nAfter resolving the blocker, retry: pvedisk clean %d", id, err, id, id)
 	}
 	return err
+}
+
+// cleanStoppedWorker requires the operation lock and rechecks process ownership.
+func (m *Manager) cleanStoppedWorker(ctx context.Context, s *State) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	id := s.VMID
+	if live, err := alive(s.Worker); err != nil || live {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("your repair worker for VM %d is active (PID %d); run: pvedisk unmount %d", id, s.Worker.PID, id)
+	}
+	if live, err := alive(s.Appliance); err != nil || live {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("your recorded libguestfs appliance for VM %d is still running in process %s; protection is retained. Inspect with: ps -p %d -o pid=,comm=", id, processDescription("/proc", strconv.Itoa(s.Appliance.PID)), s.Appliance.PID)
+	}
+	if err := cleanMounts(s); err != nil {
+		return err
+	}
+	if err := assertCleanupDisksUnused(s); err != nil {
+		return err
+	}
+	if s.PasswordFile != "" {
+		if err := scrubPassword(s.PasswordFile, m.root); err != nil {
+			return err
+		}
+	}
+	return m.finish(s, func() error {
+		if !s.ProtectionAttempted {
+			return nil
+		}
+		return proxmox.New().Release(ctx, id, s.Token)
+	})
 }
 
 // ResetRoot changes the root password while holding the same startup protection.

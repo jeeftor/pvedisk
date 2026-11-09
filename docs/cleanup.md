@@ -32,6 +32,27 @@ After host reboot, verify that the appliance and its disk access are gone and ru
 cleanup against the preserved state. A missing configuration file is not a reason
 to recreate the mount root or discard session records.
 
+## Automatic recovery on mount
+
+`pvedisk mount VMID` first requires the VM to be stopped; running VMs receive
+an error with `qm shutdown VMID` before session cleanup or worker startup.
+For the requested VM only, a recorded worker that has exited triggers automatic
+cleanup using the same checks as `clean`. Successful cleanup reports progress
+and continues mounting. A dead process identifier alone never authorizes removal:
+a live appliance, busy or foreign mounts, disk users, unexpected files, or
+uncertain lock ownership still block recovery and retain the session.
+
+Worker identity includes process start time and host boot identity, so a reused
+process identifier does not keep an old session active. Exited zombie processes
+are also treated as dead. During the kernel disk scan, a process whose mountinfo
+returns `EINVAL` is skipped only when its mount namespace is confirmed absent;
+permission errors and other uncertain inspection failures still block cleanup.
+
+A session with no worker process identifier may still have a worker starting.
+It requires explicit cleanup rather than automatic removal. Read-only status,
+worker listings, and `ismounted` never clean sessions. Automatic recovery applies
+to explicit `mount VMID` requests, including scripts and MCP calls.
+
 ## Check mounts in scripts
 
 Run `pvedisk ismounted VMID` as root to test your current pvedisk mount views
@@ -131,7 +152,7 @@ deletes directory contents.
 This error means the exact VM root, extras, or internal staging path already
 exists. An empty directory also causes this error. An inspection failure, such
 as permission denied, is reported separately. These checks happen before your
-guest is shut down.
+worker starts disk access.
 
 A previous tool may have mounted guest partitions under that directory. Never
 use `rm -rf` to clear it: deleting through a mounted filesystem deletes guest
